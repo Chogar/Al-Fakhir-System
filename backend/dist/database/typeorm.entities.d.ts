@@ -1,0 +1,13 @@
+import { Category } from './entities/category.entity';
+import { Customer } from './entities/customer.entity';
+import { DiningTable } from './entities/dining-table.entity';
+import { Expense } from './entities/expense.entity';
+import { InventoryItem } from './entities/inventory.entity';
+import { OrderItem } from './entities/order-item.entity';
+import { Payment } from './entities/payment.entity';
+import { Product } from './entities/product.entity';
+import { Reservation } from './entities/reservation.entity';
+import { RestaurantOrder } from './entities/restaurant-order.entity';
+import { Role } from './entities/role.entity';
+import { User } from './entities/user.entity';
+export declare const typeOrmEntities: (typeof Product | typeof Category | typeof OrderItem | typeof InventoryItem | typeof RestaurantOrder | typeof Payment | typeof User | typeof DiningTable | typeof Customer | typeof Reservation | typeof Expense | typeof Role)[];

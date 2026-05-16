@@ -1,0 +1,30 @@
+# Flutter / Dart
+alfakhir_desktop/.dart_tool/
+alfakhir_desktop/build/
+alfakhir_desktop/.flutter-plugins-dependencies
+alfakhir_desktop/.packages
+
+# Node
+backend/node_modules/
+
+# Env / secrets (ne jamais committer)
+backend/.env
+**/.env
+**/.env.local
+
+# Donnees locales (images produits, etc.)
+backend/uploads/
+
+# Logs
+**/logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Cursor
+.idea/
+.vscode/
+.cursor/
