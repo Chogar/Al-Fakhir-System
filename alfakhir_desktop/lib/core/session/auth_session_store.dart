@@ -2,33 +2,35 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persistance locale du JWT et du profil affiché (survit au hot restart).
-final class AuthSessionStore {
-  static const _kToken = 'alfakhir_access_token';
-  static const _kUser = 'alfakhir_user_json';
+class AuthSessionStore {
+  static const _tokenKey = 'auth_token';
+  static const _userKey = 'auth_user_json';
 
-  Future<void> save(String token, Map<String, dynamic> user) async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_kToken, token);
-    await p.setString(_kUser, jsonEncode(user));
-  }
+  static String? token;
+  static Map<String, dynamic>? user;
 
-  Future<({String token, Map<String, dynamic> user})?> load() async {
+  static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    final token = p.getString(_kToken);
-    if (token == null || token.isEmpty) return null;
-    final rawUser = p.getString(_kUser);
-    Map<String, dynamic> user = {};
-    if (rawUser != null && rawUser.isNotEmpty) {
-      final decoded = jsonDecode(rawUser);
-      if (decoded is Map<String, dynamic>) user = decoded;
+    token = p.getString(_tokenKey);
+    final raw = p.getString(_userKey);
+    if (raw != null && raw.isNotEmpty) {
+      user = jsonDecode(raw) as Map<String, dynamic>;
     }
-    return (token: token, user: user);
   }
 
-  Future<void> clear() async {
+  static Future<void> save(String t, Map<String, dynamic> u) async {
+    token = t;
+    user = u;
     final p = await SharedPreferences.getInstance();
-    await p.remove(_kToken);
-    await p.remove(_kUser);
+    await p.setString(_tokenKey, t);
+    await p.setString(_userKey, jsonEncode(u));
+  }
+
+  static Future<void> clear() async {
+    token = null;
+    user = null;
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_tokenKey);
+    await p.remove(_userKey);
   }
 }

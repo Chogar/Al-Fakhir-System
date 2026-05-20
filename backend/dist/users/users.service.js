@@ -194,6 +194,20 @@ let UsersService = class UsersService {
     async deactivateStaff(id, actorId) {
         return this.updateStaff(id, { isActive: false }, actorId);
     }
+    async changePassword(username, currentPassword, newPassword) {
+        const uname = username.trim();
+        const user = await this.findByUsernameWithSecret(uname);
+        if (!user) {
+            throw new common_1.UnauthorizedException('Identifiants invalides');
+        }
+        const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!ok) {
+            throw new common_1.UnauthorizedException('Mot de passe actuel incorrect');
+        }
+        user.passwordHash = await bcrypt.hash(newPassword, this.bcryptRounds());
+        await this.users.save(user);
+        return { ok: true };
+    }
     findByUsernameWithSecret(username) {
         return this.users
             .createQueryBuilder('user')

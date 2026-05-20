@@ -32,24 +32,6 @@ if (-not (Test-Path (Join-Path $Backend "dist\main.js"))) {
   exit 1
 }
 
-# Arreter l'ancienne API (sinon Node garde l'ancien code en memoire).
-$port = 3000
-try {
-  $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-  foreach ($c in $listeners) {
-    $oldPid = $c.OwningProcess
-    if ($oldPid -and $oldPid -gt 0) {
-      Write-Log "Arret processus API existant PID=$oldPid (port $port)"
-      Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-    }
-  }
-  Start-Sleep -Seconds 1
-} catch {
-  Write-Log "Note: impossible de verifier le port $port : $_"
-}
-
 Write-Log "Demarrage API (node: $nodeExe, cwd: $Backend)"
-$runLog = Join-Path $LogDir ("backend-run-" + (Get-Date -Format "yyyyMMdd") + ".log")
-$cmd = "cd /d `"$Backend`" && `"$nodeExe`" dist\main.js >> `"$runLog`" 2>&1"
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -WindowStyle Hidden
+Start-Process -FilePath $nodeExe -ArgumentList "dist/main.js" -WorkingDirectory $Backend -WindowStyle Hidden
 exit 0

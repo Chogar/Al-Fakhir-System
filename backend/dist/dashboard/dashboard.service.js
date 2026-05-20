@@ -230,6 +230,120 @@ let DashboardService = class DashboardService {
             users,
         };
     }
+    async getMySales(userId, periodRaw, fromRaw, toRaw, topLimit = 8) {
+        if (!userId) {
+            throw new common_1.ForbiddenException('Utilisateur non identifié');
+        }
+        const { period, ps, pe } = this.resolveReportPeriod(periodRaw, fromRaw, toRaw);
+        const now = new Date();
+        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setHours(23, 59, 59, 999);
+        const userFilter = (qb) => qb.innerJoin('o.createdBy', 'creator').andWhere('creator.id = :userId', { userId });
+        const [revenuePeriod, revenueToday, orderCountPeriod, orderCountToday] = await Promise.all([
+            this.sumUserOrderPayments(userId, ps, pe),
+            this.sumUserOrderPayments(userId, dayStart, dayEnd),
+            this.countUserPaidOrders(userId, ps, pe),
+            this.countUserPaidOrders(userId, dayStart, dayEnd),
+        ]);
+        const topRaw = await userFilter(this.orderItems
+            .createQueryBuilder('oi')
+            .innerJoin('oi.order', 'o'))
+            .leftJoin('oi.product', 'p')
+            .select('p.id', 'productId')
+            .addSelect('COALESCE(p.name, oi.productNameSnapshot)', 'name')
+            .addSelect('SUM(oi.quantity)', 'qty')
+            .addSelect('SUM(oi.quantity * oi.unitPrice)', 'revenue')
+            .where('o.status = :paid', { paid: enums_1.OrderWorkflowStatus.PAID })
+            .andWhere('o.createdAt BETWEEN :a AND :b', { a: ps, b: pe })
+            .groupBy('p.id')
+            .addGroupBy('oi.productNameSnapshot')
+            .orderBy('SUM(oi.quantity * oi.unitPrice)', 'DESC')
+            .addOrderBy('SUM(oi.quantity)', 'DESC')
+            .limit(topLimit)
+            .getRawMany();
+        const catRaw = await userFilter(this.orderItems
+            .createQueryBuilder('oi')
+            .innerJoin('oi.order', 'o'))
+            .leftJoin('oi.product', 'p')
+            .leftJoin('p.category', 'cat')
+            .select('cat.id', 'categoryId')
+            .addSelect("COALESCE(cat.labelFr, '(Sans catégorie)')", 'categoryName')
+            .addSelect('SUM(oi.quantity)', 'qty')
+            .addSelect('SUM(oi.quantity * oi.unitPrice)', 'revenue')
+            .where('o.status = :paid', { paid: enums_1.OrderWorkflowStatus.PAID })
+            .andWhere('o.createdAt BETWEEN :a AND :b', { a: ps, b: pe })
+            .groupBy('cat.id')
+            .addGroupBy('cat.labelFr')
+            .orderBy('SUM(oi.quantity * oi.unitPrice)', 'DESC')
+            .getRawMany();
+        const totalsRaw = await userFilter(this.orders
+            .createQueryBuilder('o'))
+            .select('COUNT(DISTINCT o.id)', 'orders')
+            .leftJoin('o.items', 'oi')
+            .addSelect('COALESCE(SUM(oi.quantity), 0)', 'units')
+            .addSelect('COALESCE(SUM(oi.quantity * oi.unitPrice), 0)', 'grossRevenue')
+            .where('o.status = :paid', { paid: enums_1.OrderWorkflowStatus.PAID })
+            .andWhere('o.createdAt BETWEEN :a AND :b', { a: ps, b: pe })
+            .getRawOne();
+        const grossRevenue = Number(totalsRaw?.grossRevenue ?? 0);
+        const totalRevenue = revenuePeriod;
+        const totalOrders = Number(totalsRaw?.orders ?? 0);
+        const totalUnits = Number(totalsRaw?.units ?? 0);
+        const netRatio = grossRevenue > 0 ? totalRevenue / grossRevenue : 1;
+        const topProducts = topRaw.map((r) => ({
+            productId: r.productId,
+            name: r.name?.trim().length ? r.name : '(Article supprimé)',
+            quantity: Number(r.qty) || 0,
+            revenueFcfa: (Number(r.revenue ?? 0) * netRatio).toFixed(2),
+        }));
+        const byCategory = catRaw.map((r) => {
+            const rev = Number(r.revenue ?? 0) * netRatio;
+            return {
+                categoryId: r.categoryId,
+                categoryName: r.categoryName,
+                quantity: Number(r.qty) || 0,
+                revenueFcfa: rev.toFixed(2),
+                share: totalRevenue > 0 ? rev / totalRevenue : 0,
+            };
+        });
+        return {
+            period,
+            periodFrom: this.toIsoDate(ps),
+            periodTo: this.toIsoDate(pe),
+            revenueTodayFcfa: revenueToday.toFixed(2),
+            orderCountToday,
+            revenuePeriodFcfa: revenuePeriod.toFixed(2),
+            orderCountPeriod,
+            totalRevenueFcfa: totalRevenue.toFixed(2),
+            totalOrders,
+            totalUnits,
+            topProducts,
+            byCategory,
+        };
+    }
+    async sumUserOrderPayments(userId, from, to) {
+        const raw = await this.orders
+            .createQueryBuilder('o')
+            .innerJoin('o.createdBy', 'creator')
+            .leftJoin('o.payments', 'pay')
+            .select(`COALESCE(SUM(CASE WHEN ${this.revenuePaymentSql('pay')} THEN pay.amount ELSE 0 END), 0)`, 'total')
+            .where('creator.id = :userId', { userId })
+            .andWhere('o.status = :paid', { paid: enums_1.OrderWorkflowStatus.PAID })
+            .andWhere('o.createdAt BETWEEN :a AND :b', { a: from, b: to })
+            .getRawOne();
+        return Number(raw?.total ?? 0);
+    }
+    async countUserPaidOrders(userId, from, to) {
+        return this.orders
+            .createQueryBuilder('o')
+            .innerJoin('o.createdBy', 'creator')
+            .where('creator.id = :userId', { userId })
+            .andWhere('o.status = :paid', { paid: enums_1.OrderWorkflowStatus.PAID })
+            .andWhere('o.createdAt BETWEEN :a AND :b', { a: from, b: to })
+            .getCount();
+    }
     async getSalesBreakdown(periodRaw, fromRaw, toRaw, topLimit = 8) {
         const { period, ps, pe } = this.resolveReportPeriod(periodRaw, fromRaw, toRaw);
         const topRaw = await this.orderItems

@@ -82,6 +82,9 @@ let AuthService = class AuthService {
             },
         };
     }
+    changePassword(dto) {
+        return this.users.changePassword(dto.username, dto.currentPassword, dto.newPassword);
+    }
     async verifyPayload(payload) {
         const user = await this.users.findById(payload.sub);
         if (!user || !user.isActive) {

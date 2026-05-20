@@ -37,6 +37,11 @@ let DashboardController = class DashboardController {
     salesByUser(period, from, to) {
         return this.dashboard.getSalesByUser(period, from, to);
     }
+    mySales(req, period, from, to, limit) {
+        const n = limit ? Number(limit) : 8;
+        const safe = Number.isFinite(n) && n > 0 && n <= 50 ? n : 8;
+        return this.dashboard.getMySales(req.user?.id, period, from, to, safe);
+    }
 };
 exports.DashboardController = DashboardController;
 __decorate([
@@ -77,6 +82,18 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", void 0)
 ], DashboardController.prototype, "salesByUser", null);
+__decorate([
+    (0, common_1.Get)('my-sales'),
+    (0, permissions_decorator_1.Permissions)('dashboard.view'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Query)('period')),
+    __param(2, (0, common_1.Query)('from')),
+    __param(3, (0, common_1.Query)('to')),
+    __param(4, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, String, String]),
+    __metadata("design:returntype", void 0)
+], DashboardController.prototype, "mySales", null);
 exports.DashboardController = DashboardController = __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, permissions_guard_1.PermissionsGuard),
     (0, common_1.Controller)('dashboard'),

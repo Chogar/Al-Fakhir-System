@@ -65,14 +65,6 @@ if ($gitExe) {
   Write-Warning "Git introuvable. Installe https://git-scm.com puis relance ce script."
 }
 
-$nodeDir = "C:\Program Files\nodejs"
-if (Test-Path (Join-Path $nodeDir "npm.cmd")) {
-  $addedNode = Add-UserPathEntry -Dir $nodeDir
-  Write-Host $(if ($addedNode) { "PATH : Node.js ajoute ($nodeDir)." } else { "PATH : Node.js deja present ($nodeDir)." })
-} else {
-  Write-Warning "Node.js introuvable dans $nodeDir. Installez : winget install OpenJS.NodeJS.LTS"
-}
-
 Write-Host ""
 Write-Host "Ouvre un NOUVEAU terminal pour que PATH / FLUTTER_ROOT soient pris en compte partout." -ForegroundColor Cyan
 Write-Host "Symlinks + Visual Studio Build Tools : droits admin / redemarrage, voir messages de run_flutter_desktop.ps1 et flutter doctor." -ForegroundColor Cyan

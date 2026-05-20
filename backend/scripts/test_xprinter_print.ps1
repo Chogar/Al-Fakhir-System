@@ -17,6 +17,7 @@ if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
 function New-EscPosBytes {
   param([string[]]$Lines)
   $ms = New-Object System.IO.MemoryStream
+  $w = $ms.WriteByte
   # ESC @ init
   0x1B, 0x40 | ForEach-Object { $ms.WriteByte($_) | Out-Null }
   # ESC t 16 = Windows-1252
@@ -37,7 +38,7 @@ $tmp = [System.IO.Path]::Combine($env:TEMP, "xprinter_test.bin")
 [System.IO.File]::WriteAllBytes($tmp, $bytes)
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$rawScript = Join-Path (Split-Path (Split-Path $scriptDir -Parent) -Parent) "install\scripts\print_raw.ps1"
+$rawScript = Join-Path (Split-Path $scriptDir -Parent) "..\install\scripts\print_raw.ps1"
 if (-not (Test-Path $rawScript)) {
   $rawScript = Join-Path $env:LOCALAPPDATA "Programs\Al-Fakhir\scripts\print_raw.ps1"
 }
@@ -45,4 +46,4 @@ if (-not (Test-Path $rawScript)) {
 Write-Host "Imprimante : $PrinterName" -ForegroundColor Cyan
 Write-Host "Donnees    : $($bytes.Length) octets -> $tmp" -ForegroundColor DarkGray
 & $rawScript -PrinterName $PrinterName -FilePath $tmp
-Write-Host "OK - verifiez le ticket (texte visible)." -ForegroundColor Green
+Write-Host "OK — verifiez le ticket (texte visible)." -ForegroundColor Green

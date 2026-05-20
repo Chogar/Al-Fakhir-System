@@ -18,6 +18,7 @@ const passport_1 = require("@nestjs/passport");
 const app_permissions_1 = require("./app-permissions");
 const auth_service_1 = require("./auth.service");
 const login_dto_1 = require("./dto/login.dto");
+const change_password_dto_1 = require("./dto/change-password.dto");
 let AuthController = class AuthController {
     auth;
     constructor(auth) {
@@ -25,6 +26,9 @@ let AuthController = class AuthController {
     }
     login(dto) {
         return this.auth.login(dto);
+    }
+    changePassword(dto) {
+        return this.auth.changePassword(dto);
     }
     permissions() {
         return (0, app_permissions_1.getPermissionsRegistry)();
@@ -49,6 +53,13 @@ __decorate([
     __metadata("design:paramtypes", [login_dto_1.LoginDto]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "login", null);
+__decorate([
+    (0, common_1.Post)('change-password'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [change_password_dto_1.ChangePasswordDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "changePassword", null);
 __decorate([
     (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
     (0, common_1.Get)('permissions'),

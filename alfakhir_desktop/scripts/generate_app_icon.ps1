@@ -8,9 +8,9 @@ $icoInstall = Join-Path (Split-Path $Root -Parent) "install\Al-Fakhir.ico"
 
 Add-Type -AssemblyName System.Drawing
 
-function New-RoundedRectPath([float]$x, [float]$y, [float]$w, [float]$h, [float]$r) {
+function New-GraphicsPath-RoundedRect([float]$x, [float]$y, [float]$w, [float]$h, [float]$r) {
   $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-  $d = [Math]::Min($r, [Math]::Min($w / 2, $h / 2))
+  $d = [Math]::Min($r, $w / 2, $h / 2)
   $path.AddArc($x, $y, $d * 2, $d * 2, 180, 90)
   $path.AddArc($x + $w - $d * 2, $y, $d * 2, $d * 2, 270, 90)
   $path.AddArc($x + $w - $d * 2, $y + $h - $d * 2, $d * 2, $d * 2, 0, 90)
@@ -29,8 +29,8 @@ function New-PolishedIconBitmap([int]$size, [System.Drawing.Image]$logo) {
   $g.Clear([System.Drawing.Color]::Transparent)
 
   $corner = $size * 0.22
-  $bounds = New-Object System.Drawing.RectangleF(0, 0, $size, $size)
-  $path = New-RoundedRectPath -x 0 -y 0 -w $size -h $size -r $corner
+  $bounds = New-Object System.Drawing.RectangleF 0, 0, $size, $size
+  $path = New-GraphicsPath-RoundedRect 0, 0, $size, $size, $corner
   $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
     $bounds,
     [System.Drawing.Color]::FromArgb(255, 232, 58, 46),
@@ -43,10 +43,10 @@ function New-PolishedIconBitmap([int]$size, [System.Drawing.Image]$logo) {
   $plateD = [int]($size * 0.78)
   $plateX = ($size - $plateD) / 2
   $plateY = ($size - $plateD) / 2
-  $plateRect = New-Object System.Drawing.Rectangle([int]$plateX, [int]$plateY, $plateD, $plateD)
+  $plateRect = New-Object System.Drawing.Rectangle $plateX, $plateY, $plateD, $plateD
 
   $shadowBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(48, 0, 0, 0))
-  $shadowRect = New-Object System.Drawing.Rectangle([int]($plateX + 2), [int]($plateY + 4), $plateD, $plateD)
+  $shadowRect = New-Object System.Drawing.Rectangle ($plateX + 2), ($plateY + 4), $plateD, $plateD
   $g.FillEllipse($shadowBrush, $shadowRect)
   $shadowBrush.Dispose()
 
@@ -55,7 +55,7 @@ function New-PolishedIconBitmap([int]$size, [System.Drawing.Image]$logo) {
   $ringPen.Dispose()
 
   $plateBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-  $innerPlate = New-Object System.Drawing.Rectangle([int]($plateX + 3), [int]($plateY + 3), ($plateD - 6), ($plateD - 6))
+  $innerPlate = New-Object System.Drawing.Rectangle ($plateX + 3), ($plateY + 3), ($plateD - 6), ($plateD - 6)
   $g.FillEllipse($plateBrush, $innerPlate)
   $plateBrush.Dispose()
 
@@ -83,61 +83,20 @@ function New-PolishedIconBitmap([int]$size, [System.Drawing.Image]$logo) {
   return $bmp
 }
 
-function Save-MultiSizeIconFile([System.Drawing.Image]$logo, [string]$icoPath) {
-  if (-not ("MultiSizeIconWriter" -as [type])) {
-    Add-Type -ReferencedAssemblies System.Drawing @"
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
-
-public static class MultiSizeIconWriter {
-  public static void Save(string path, IEnumerable<Bitmap> sources) {
-    using (var fs = File.Create(path))
-    using (var bw = new BinaryWriter(fs)) {
-      bw.Write((ushort)0);
-      bw.Write((ushort)1);
-      var images = new List<byte[]>();
-      var entries = new List<Tuple<int,int,int>>();
-      foreach (var bmp in sources) {
-        using (var ms = new MemoryStream()) {
-          bmp.Save(ms, ImageFormat.Png);
-          var data = ms.ToArray();
-          images.Add(data);
-          entries.Add(Tuple.Create(bmp.Width, bmp.Height, data.Length));
-        }
-      }
-      bw.Write((ushort)entries.Count);
-      int offset = 6 + entries.Count * 16;
-      foreach (var e in entries) {
-        bw.Write((byte)(e.Item1 >= 256 ? 0 : e.Item1));
-        bw.Write((byte)(e.Item2 >= 256 ? 0 : e.Item2));
-        bw.Write((byte)0);
-        bw.Write((byte)0);
-        bw.Write((ushort)1);
-        bw.Write((ushort)32);
-        bw.Write((uint)e.Item3);
-        bw.Write((uint)offset);
-        offset += e.Item3;
-      }
-      foreach (var data in images) bw.Write(data);
-    }
-  }
-}
-"@
-  }
-  $sizes = @(16, 24, 32, 48, 64, 128, 256)
-  $bitmaps = New-Object System.Collections.Generic.List[System.Drawing.Bitmap]
-  foreach ($s in $sizes) {
-    $bitmaps.Add((New-PolishedIconBitmap $s $logo))
-  }
+function Save-IconFile([System.Drawing.Bitmap]$bmp256, [string]$icoPath) {
+  $dir = Split-Path $icoPath -Parent
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+  $ptr = $bmp256.GetHicon()
   try {
-    $dir = Split-Path $icoPath -Parent
-    if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    [MultiSizeIconWriter]::Save($icoPath, $bitmaps)
+    $icon = [System.Drawing.Icon]::FromHandle($ptr)
+    $clone = New-Object System.Drawing.Icon $icon, 256, 256
+    $fs = [System.IO.File]::Open($icoPath, [System.IO.FileMode]::Create)
+    $clone.Save($fs)
+    $fs.Close()
+    $clone.Dispose()
+    $icon.Dispose()
   } finally {
-    foreach ($b in $bitmaps) { $b.Dispose() }
+    [void][System.Runtime.InteropServices.Marshal]::DestroyIcon($ptr)
   }
 }
 
@@ -154,13 +113,15 @@ try {
   $bmp512.Save($pngOut, [System.Drawing.Imaging.ImageFormat]::Png)
   Write-Host "PNG : $pngOut" -ForegroundColor Green
 
-  Save-MultiSizeIconFile $logo $icoRunner
+  $bmp256 = New-PolishedIconBitmap 256 $logo
+  Save-IconFile $bmp256 $icoRunner
   Write-Host "ICO exe : $icoRunner" -ForegroundColor Green
 
-  Save-MultiSizeIconFile $logo $icoInstall
+  Save-IconFile $bmp256 $icoInstall
   Write-Host "ICO raccourci : $icoInstall" -ForegroundColor Green
 
   $bmp512.Dispose()
+  $bmp256.Dispose()
 } finally {
   if ($logo -ne $null) { $logo.Dispose() }
 }

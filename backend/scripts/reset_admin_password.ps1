@@ -31,7 +31,7 @@ WHERE u.role_id = r.id AND r.name = 'ADMIN'
     SELECT u2.id FROM users u2
     INNER JOIN roles r2 ON u2.role_id = r2.id
     WHERE r2.name = 'ADMIN'
-    ORDER BY u2."createdAt" ASC
+    ORDER BY u2.created_at ASC
     LIMIT 1
   );
 "@

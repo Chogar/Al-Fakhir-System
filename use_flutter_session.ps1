@@ -11,8 +11,7 @@ if (-not (Test-Path (Join-Path $bin "flutter.bat"))) {
   return
 }
 $env:FLUTTER_ROOT = $flutterRoot
-$already = ($env:Path -split ';' | Where-Object { $_ -eq $bin })
-if (-not $already) {
+if ($env:Path -notlike "*$($bin.Replace('\','\\'))*") {
   $env:Path = "$bin;$env:Path"
 }
 Write-Host "Session: flutter = $bin\flutter.bat" -ForegroundColor Green

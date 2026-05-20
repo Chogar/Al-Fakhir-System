@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Restaurant Al-Fakhir" "\0"
-            VALUE "FileDescription", "Restaurant Al-Fakhir" "\0"
+            VALUE "CompanyName", "com.alfakhir" "\0"
+            VALUE "FileDescription", "alfakhir_desktop" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "alfakhir_desktop" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Restaurant Al-Fakhir. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.alfakhir. All rights reserved." "\0"
             VALUE "OriginalFilename", "alfakhir_desktop.exe" "\0"
-            VALUE "ProductName", "Restaurant Al-Fakhir" "\0"
+            VALUE "ProductName", "alfakhir_desktop" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

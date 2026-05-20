@@ -5,13 +5,8 @@ param(
 $wsh = New-Object -ComObject WScript.Shell
 $vbs = Join-Path $InstallDir "Al-Fakhir.vbs"
 $wscript = Join-Path $env:WINDIR "System32\wscript.exe"
-$icoFile = Join-Path $InstallDir "Al-Fakhir.ico"
 $appExe = Join-Path $InstallDir "app\alfakhir_desktop.exe"
-if (Test-Path $icoFile) {
-  $iconLoc = "$icoFile,0"
-} else {
-  $iconLoc = "$appExe,0"
-}
+$iconLoc = "$appExe,0"
 
 $paths = @(
   (Join-Path ([Environment]::GetFolderPath("Desktop")) "Al-Fakhir.lnk"),

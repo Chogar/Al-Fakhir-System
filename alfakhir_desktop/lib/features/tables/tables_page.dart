@@ -2,13 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../data/models/dining_table_model.dart';
-
+import '../../core/api/dio_error_message.dart';
 import '../../core/notifications/top_notifier.dart';
 import '../../l10n/app_strings.dart';
-
-const _kTypes = ['STANDARD', 'VIP', 'FAMILY'];
-const _kStatuses = ['FREE', 'OCCUPIED', 'RESERVED', 'CLEANING'];
 
 class TablesPage extends StatefulWidget {
   const TablesPage({super.key, required this.api});
@@ -20,301 +16,228 @@ class TablesPage extends StatefulWidget {
 }
 
 class _TablesPageState extends State<TablesPage> {
-  List<DiningTableDto>? _tables;
-  String? _error;
   bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _tables = [];
 
-  Future<void> _refresh() async {
+  @override
+  void initState() {
+    super.initState();
+    _loadTables();
+  }
+
+  Future<void> _loadTables() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final res = await widget.api.dio.get<List<dynamic>>('/tables');
-      final list = (res.data ?? [])
-          .map((e) => DiningTableDto.fromJson(e as Map<String, dynamic>))
-          .toList();
-      setState(() => _tables = list);
+      _tables = (res.data ?? []).cast<Map<String, dynamic>>();
     } on DioException catch (e) {
-      setState(() => _error = e.response?.data?.toString() ?? e.message);
+      if (!mounted) return;
+      _error = userFacingDioMessage(e, AppStrings.of(context));
     } catch (e) {
-      setState(() => _error = '$e');
+      if (!mounted) return;
+      _error = e.toString();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _refresh();
-  }
-
-  Future<void> _openEditor({DiningTableDto? existing}) async {
+  Future<void> _createTable() async {
     final str = AppStrings.of(context);
-    final numCtrl = TextEditingController(
-      text: existing != null ? '${existing.number}' : '',
-    );
-    final capCtrl = TextEditingController(
-      text: existing != null ? '${existing.capacity}' : '4',
-    );
-    var type = existing?.tableType ?? 'STANDARD';
-    var status = existing?.status ?? 'FREE';
+    final numberCtrl = TextEditingController();
+    final capacityCtrl = TextEditingController(text: '4');
+    String tableType = 'STANDARD';
+    String status = 'FREE';
 
-    final ok = await showDialog<bool>(
+    final submit = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        return AlertDialog(
-          title: Text(
-            existing == null ? str.tablesNewTitle : str.tablesEditTitle,
+        return StatefulBuilder(
+          builder: (context, setLocal) => AlertDialog(
+            title: Text(str.navTables),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: numberCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Numéro de table',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: capacityCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Capacité',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: tableType,
+                    decoration: const InputDecoration(
+                      labelText: 'Type',
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'STANDARD', child: Text('Standard')),
+                      DropdownMenuItem(value: 'VIP', child: Text('VIP')),
+                      DropdownMenuItem(value: 'FAMILY', child: Text('Famille')),
+                    ],
+                    onChanged: (v) => setLocal(() => tableType = v ?? 'STANDARD'),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: status,
+                    decoration: const InputDecoration(
+                      labelText: 'Statut',
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'FREE', child: Text('Libre')),
+                      DropdownMenuItem(value: 'OCCUPIED', child: Text('Occupée')),
+                      DropdownMenuItem(value: 'RESERVED', child: Text('Réservée')),
+                      DropdownMenuItem(value: 'CLEANING', child: Text('Nettoyage')),
+                    ],
+                    onChanged: (v) => setLocal(() => status = v ?? 'FREE'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(str.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Créer'),
+              ),
+            ],
           ),
-          content: SizedBox(
-            width: 400,
-            child: StatefulBuilder(
-              builder: (context, setLocal) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: numCtrl,
-                      decoration: InputDecoration(labelText: str.tablesFieldNumber),
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: capCtrl,
-                      decoration: InputDecoration(labelText: str.tablesFieldCapacity),
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 12),
-                    InputDecorator(
-                      decoration: InputDecoration(labelText: str.tablesFieldType),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: type,
-                          isExpanded: true,
-                          items: _kTypes
-                              .map(
-                                (t) => DropdownMenuItem(
-                                  value: t,
-                                  child: Text(str.tablesType(t)),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) => setLocal(() => type = v ?? type),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    InputDecorator(
-                      decoration: InputDecoration(labelText: str.tablesFieldStatus),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: status,
-                          isExpanded: true,
-                          items: _kStatuses
-                              .map(
-                                (t) => DropdownMenuItem(
-                                  value: t,
-                                  child: Text(str.tablesStatus(t)),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) => setLocal(() => status = v ?? status),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(str.cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(str.save),
-            ),
-          ],
         );
       },
     );
 
-    if (ok != true || !mounted) return;
-
-    final n = int.tryParse(numCtrl.text.trim());
-    final cap = int.tryParse(capCtrl.text.trim());
-    if (n == null || cap == null) {
-      TopNotifier.error(context, str.tablesInvalidNumCap);
+    if (submit != true) return;
+    final number = int.tryParse(numberCtrl.text.trim());
+    final capacity = int.tryParse(capacityCtrl.text.trim());
+    if (number == null || number <= 0 || capacity == null || capacity <= 0) {
+      TopNotifier.warning(context, 'Numéro/capacité invalides');
       return;
     }
 
-    final dto = DiningTableDto(
-      id: existing?.id ?? '',
-      number: n,
-      capacity: cap,
-      tableType: type,
-      status: status,
-    );
-
     try {
-      if (existing == null) {
-        await widget.api.dio.post('/tables', data: dto.toCreateBody(status: status));
-      } else {
-        await widget.api.dio.patch('/tables/${existing.id}', data: dto.toPatchBody());
-      }
-      await _refresh();
-      if (mounted) {
-        TopNotifier.success(context, str.tablesSaved);
-      }
+      await widget.api.dio.post<Map<String, dynamic>>(
+        '/tables',
+        data: {
+          'number': number,
+          'capacity': capacity,
+          'tableType': tableType,
+          'status': status,
+        },
+      );
+      if (!mounted) return;
+      TopNotifier.success(context, 'Table créée');
+      await _loadTables();
     } on DioException catch (e) {
       if (!mounted) return;
-      TopNotifier.error(
-        context,
-        e.response?.data?.toString() ?? e.message ?? str.tablesErrGeneric,
-      );
+      TopNotifier.error(context, userFacingDioMessage(e, AppStrings.of(context)));
     }
   }
 
-  Future<void> _delete(DiningTableDto t) async {
-    final str = AppStrings.of(context);
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(str.tablesDeleteTitle),
-        content: Text(str.tablesDeleteBody(t.number)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(str.no),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(str.yes),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
+  Future<void> _updateStatus(Map<String, dynamic> table, String status) async {
+    final id = table['id']?.toString();
+    if (id == null || id.isEmpty) return;
     try {
-      await widget.api.dio.delete('/tables/${t.id}');
-      await _refresh();
-      if (mounted) {
-        TopNotifier.success(context, str.tablesDeleted);
-      }
+      await widget.api.dio.patch<Map<String, dynamic>>(
+        '/tables/$id',
+        data: {'status': status},
+      );
+      if (!mounted) return;
+      await _loadTables();
     } on DioException catch (e) {
       if (!mounted) return;
-      TopNotifier.error(
-        context,
-        e.response?.data?.toString() ?? e.message ?? str.tablesErrGeneric,
-      );
+      TopNotifier.error(context, userFacingDioMessage(e, AppStrings.of(context)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final str = AppStrings.of(context);
-    if (_loading && _tables == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null && _tables == null) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_error!),
-            FilledButton(onPressed: _refresh, child: Text(str.retry)),
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 10),
+            FilledButton(onPressed: _loadTables, child: Text(str.refresh)),
           ],
         ),
       );
     }
-
-    final rows = _tables ?? [];
-
-    return Stack(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        RefreshIndicator(
-          onRefresh: _refresh,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      str.tablesPageTitle,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: str.refresh,
-                      onPressed: _refresh,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  str.navTables,
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 16),
-                Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: [
-                        DataColumn(label: Text(str.tablesColNo)),
-                        DataColumn(label: Text(str.tablesColCapacity)),
-                        DataColumn(label: Text(str.tablesColType)),
-                        DataColumn(label: Text(str.tablesColStatus)),
-                        const DataColumn(label: Text('')),
-                      ],
-                      rows: [
-                        for (final t in rows)
-                          DataRow(
-                            cells: [
-                              DataCell(Text('${t.number}')),
-                              DataCell(Text('${t.capacity}')),
-                              DataCell(Text(str.tablesType(t.tableType))),
-                              DataCell(Text(str.tablesStatus(t.status))),
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined),
-                                      tooltip: str.menuProdTooltipEdit,
-                                      onPressed: () => _openEditor(existing: t),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline),
-                                      tooltip: str.menuProdTooltipDelete,
-                                      onPressed: () => _delete(t),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+              FilledButton.icon(
+                onPressed: _createTable,
+                icon: const Icon(Icons.add),
+                label: const Text('Nouvelle table'),
+              ),
+            ],
           ),
         ),
-        Positioned(
-          right: 32,
-          bottom: 32,
-          child: FloatingActionButton.extended(
-            onPressed: () => _openEditor(),
-            icon: const Icon(Icons.add),
-            label: Text(str.tablesFab),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: _tables.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (_, i) {
+              final t = _tables[i];
+              final number = t['number']?.toString() ?? '—';
+              final status = t['status']?.toString() ?? 'FREE';
+              final capacity = t['capacity']?.toString() ?? '0';
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.table_restaurant_outlined),
+                  title: Text('Table $number'),
+                  subtitle: Text('Capacité: $capacity · Type: ${t['tableType'] ?? 'STANDARD'}'),
+                  trailing: DropdownButton<String>(
+                    value: status,
+                    items: const [
+                      DropdownMenuItem(value: 'FREE', child: Text('Libre')),
+                      DropdownMenuItem(value: 'OCCUPIED', child: Text('Occupée')),
+                      DropdownMenuItem(value: 'RESERVED', child: Text('Réservée')),
+                      DropdownMenuItem(value: 'CLEANING', child: Text('Nettoyage')),
+                    ],
+                    onChanged: (v) {
+                      if (v == null || v == status) return;
+                      _updateStatus(t, v);
+                    },
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],

@@ -30,51 +30,14 @@ function Resolve-FlutterBat {
   return $null
 }
 
-function Stop-AlFakhirDesktopApp {
-  $names = @('alfakhir_desktop')
-  foreach ($n in $names) {
-    Get-Process -Name $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  }
-  Start-Sleep -Seconds 1
-}
-
-function Invoke-FlutterWindowsReleaseBuild {
-  param([string]$FlutterBat, [string]$DesktopDir)
-  Push-Location $DesktopDir
-  try {
-    & $FlutterBat build windows --release
-    if ($LASTEXITCODE -eq 0) { return }
-    Write-Host "Build echoue (souvent dossier build corrompu ou exe verrouille). Nettoyage..." -ForegroundColor Yellow
-    Stop-AlFakhirDesktopApp
-    & $FlutterBat clean
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $DesktopDir "build")
-    & $FlutterBat build windows --release
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "Fermez Al-Fakhir puis relancez mettre_a_jour_desktop.ps1" -ForegroundColor Red
-      exit $LASTEXITCODE
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
 function New-Shortcut {
-  param(
-    [string]$Path,
-    [string]$Target,
-    [string]$Arguments,
-    [string]$WorkingDirectory,
-    [string]$Description,
-    [string]$IconLocation
-  )
+  param([string]$Path, [string]$Target, [string]$Arguments, [string]$WorkingDirectory, [string]$Description)
   $wsh = New-Object -ComObject WScript.Shell
   $sc = $wsh.CreateShortcut($Path)
   $sc.TargetPath = $Target
   if ($Arguments) { $sc.Arguments = $Arguments }
   $sc.WorkingDirectory = $WorkingDirectory
   if ($Description) { $sc.Description = $Description }
-  if ($IconLocation) { $sc.IconLocation = $IconLocation }
   $sc.Save()
 }
 
@@ -84,7 +47,6 @@ if (-not $flutterBat) {
 }
 
 if (-not $SkipBuild) {
-  Stop-AlFakhirDesktopApp
   Set-Location $DesktopApp
   if (-not $SkipSymlinkProbe) {
     $pubspec = Join-Path (Get-Location) "pubspec.yaml"
@@ -102,19 +64,8 @@ if (-not $SkipBuild) {
   Write-Host "Compilation release Windows..." -ForegroundColor Cyan
   & $flutterBat pub get
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  $flutterBin = Split-Path -Parent $flutterBat
-  $dartBat = Join-Path $flutterBin "dart.bat"
-  $iconScript = Join-Path $DesktopApp "scripts\generate_app_icon.ps1"
-  if (Test-Path $iconScript) {
-    Write-Host "Icone application (design + ICO raccourci)..." -ForegroundColor DarkGray
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $iconScript
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  }
-  if (Test-Path $dartBat) {
-    & $dartBat run flutter_launcher_icons
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  }
-  Invoke-FlutterWindowsReleaseBuild -FlutterBat $flutterBat -DesktopDir $DesktopApp
+  & $flutterBat build windows --release
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   Set-Location $Root
 }
 
@@ -151,30 +102,81 @@ if (-not (Test-Path (Join-Path $BackendDest ".env"))) {
   }
 }
 
-foreach ($file in @("Al-Fakhir.ps1", "start-backend.ps1", "Al-Fakhir.vbs", "Al-Fakhir-API.vbs", "receipt_printer.txt", "Al-Fakhir.ico")) {
-  $src = Join-Path $Root "install\$file"
-  if (Test-Path $src) {
-    Copy-Item $src (Join-Path $InstallDir $file) -Force
+$launcher = @'
+$ErrorActionPreference = "Stop"
+$InstallRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$AppExe = Join-Path $InstallRoot "app\alfakhir_desktop.exe"
+$BackendScript = Join-Path $InstallRoot "start-backend.ps1"
+$HealthUrl = "http://127.0.0.1:3000/api/health"
+
+function Test-ApiHealth {
+  try {
+    $r = Invoke-WebRequest -Uri $HealthUrl -UseBasicParsing -TimeoutSec 2
+    return $r.StatusCode -eq 200
+  } catch { return $false }
+}
+
+if (-not (Test-ApiHealth)) {
+  Write-Host "Demarrage du serveur local..." -ForegroundColor Cyan
+  Start-Process powershell -WindowStyle Hidden -ArgumentList @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass",
+    "-File", $BackendScript
+  ) | Out-Null
+  $deadline = (Get-Date).AddSeconds(45)
+  while ((Get-Date) -lt $deadline) {
+    if (Test-ApiHealth) { break }
+    Start-Sleep -Milliseconds 500
+  }
+  if (-not (Test-ApiHealth)) {
+    Write-Host ""
+    Write-Host "L'API ne repond pas. Verifiez PostgreSQL et backend\.env puis relancez." -ForegroundColor Red
+    Write-Host "  winget install PostgreSQL.PostgreSQL.17" -ForegroundColor Yellow
+    Write-Host "  powershell -File setup_postgres.ps1  (depuis le dossier projet)" -ForegroundColor Yellow
+    Read-Host "Appuyez sur Entree pour fermer"
+    exit 1
   }
 }
 
-$scriptsSrc = Join-Path $Root "install\scripts"
-$scriptsDest = Join-Path $InstallDir "scripts"
-if (Test-Path $scriptsSrc) {
-  New-Item -ItemType Directory -Force -Path $scriptsDest | Out-Null
-  robocopy $scriptsSrc $scriptsDest /MIR /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+Start-Process -FilePath $AppExe -WorkingDirectory (Split-Path $AppExe)
+'@
+
+$startBackend = @'
+$ErrorActionPreference = "Stop"
+$Backend = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "backend"
+Set-Location $Backend
+
+function Resolve-NodeDir {
+  foreach ($p in @("C:\Program Files\nodejs", "C:\Program Files (x86)\nodejs")) {
+    if (Test-Path (Join-Path $p "node.exe")) { return $p }
+  }
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+  if ($node) { return Split-Path -Parent $node.Source }
+  return $null
 }
 
-Write-Host "Demarrage automatique (API a la connexion)..." -ForegroundColor DarkGray
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "install\configure_autostart.ps1") -InstallDir $InstallDir
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$nodeDir = Resolve-NodeDir
+if (-not $nodeDir) { exit 1 }
+if (($env:Path -split ';' | Where-Object { $_ -eq $nodeDir }).Count -eq 0) {
+  $env:Path = "$nodeDir;$env:Path"
+}
+$nodeExe = Join-Path $nodeDir "node.exe"
+& $nodeExe dist/main.js
+'@
 
-Write-Host "Raccourcis Bureau / Menu Demarrer..." -ForegroundColor DarkGray
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "install\update_shortcuts.ps1") -InstallDir $InstallDir
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Set-Content -Path (Join-Path $InstallDir "Al-Fakhir.ps1") -Value $launcher -Encoding UTF8
+Set-Content -Path (Join-Path $InstallDir "start-backend.ps1") -Value $startBackend -Encoding UTF8
 
-$shortcutDesktop = Join-Path ([Environment]::GetFolderPath("Desktop")) "Al-Fakhir.lnk"
-$shortcutMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Al-Fakhir.lnk"
+$psExe = (Get-Command powershell.exe).Source
+$launchArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'Al-Fakhir.ps1')`""
+
+$desktop = [Environment]::GetFolderPath("Desktop")
+$startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
+
+$shortcutDesktop = Join-Path $desktop "Al-Fakhir.lnk"
+$shortcutMenu = Join-Path $startMenu "Al-Fakhir.lnk"
+New-Shortcut -Path $shortcutDesktop -Target $psExe -Arguments $launchArgs -WorkingDirectory $InstallDir -Description "Al-Fakhir System - Gestion restaurant"
+New-Shortcut -Path $shortcutMenu -Target $psExe -Arguments $launchArgs -WorkingDirectory $InstallDir -Description "Al-Fakhir System - Gestion restaurant"
 
 Write-Host ""
 Write-Host "Installation terminee." -ForegroundColor Green
@@ -182,6 +184,5 @@ Write-Host "  Dossier : $InstallDir" -ForegroundColor DarkGray
 Write-Host "  Raccourci Bureau : $shortcutDesktop" -ForegroundColor DarkGray
 Write-Host "  Menu Demarrer : Al-Fakhir" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "Double-cliquez sur Al-Fakhir : l'API demarre automatiquement a la connexion Windows." -ForegroundColor Cyan
-Write-Host "Aucune commande a taper : uniquement le raccourci Bureau ou Menu Demarrer." -ForegroundColor DarkGray
-Write-Host "Connexion : identifiants dans backend\.env (ex. Chogar)." -ForegroundColor DarkGray
+Write-Host "Double-cliquez sur Al-Fakhir sur le Bureau pour utiliser l'application." -ForegroundColor Cyan
+Write-Host "Connexion : identifiants configures dans backend\.env (ex. Chogar)." -ForegroundColor DarkGray

@@ -4,6 +4,9 @@
   "private": true,
   "description": "API NestJS Al-Fakhir (build dist/)",
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start:dev": "npm run build && node dist/main.js",
+    "test": "node --test tests/**/*.test.js",
     "start": "node dist/main.js",
     "start:prod": "node dist/main.js"
   },
@@ -25,5 +28,9 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3"
   }
 }

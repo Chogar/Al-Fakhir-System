@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Largeur ticket thermique 58 mm.
@@ -8,20 +7,20 @@ const double kReceiptPaperWidthMm = 58;
 
 /// Noms connus (XP-58, USB Generic PostScript, etc.).
 const List<String> kReceiptPrinterNameHints = [
-  'xp-58c',
+  'printer usb printer port',
+  'usb printer port',
+  'generic postscript',
   'xp-58iit',
   'xp-58',
   'xprinter',
   '58iit',
-  'printer usb printer port',
-  'usb printer port',
 ];
 
 /// Noms exacts a essayer en priorite (fichier config + defauts usine).
 const List<String> kReceiptPrinterExactNames = [
-  'XP-58C',
+  'Printer usb printer port',
+  'USB Printer Port',
   'XP-58',
-  'XP-58IIT',
 ];
 
 /// Préférence locale : imprimante ticket.
@@ -76,21 +75,6 @@ final class ReceiptPrinterConfig {
         return exact;
       }
     }
-
-    try {
-      final info = await Printing.info();
-      if (info.canListPrinters) {
-        final printers = await Printing.listPrinters();
-        final physical =
-            printers.where((p) => !isVirtualPrinter(p.name)).toList();
-
-        final hinted = _findByHints(physical, kReceiptPrinterNameHints);
-        if (hinted != null) {
-          await savePrinterName(hinted.name);
-          return hinted.name;
-        }
-      }
-    } catch (_) {}
 
     if (Platform.isWindows) {
       final fromOs = await _resolvePrinterNameFromWindows();
@@ -187,14 +171,4 @@ if ($q) { $q }
     }
   }
 
-  static Printer? _findByHints(List<Printer> printers, List<String> hints) {
-    for (final hint in hints) {
-      final h = hint.toLowerCase();
-      for (final p in printers) {
-        final n = p.name.toLowerCase();
-        if (n.contains(h)) return p;
-      }
-    }
-    return null;
-  }
 }

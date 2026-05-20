@@ -1,140 +1,52 @@
 class OrderTableRefDto {
   const OrderTableRefDto({required this.id, required this.number});
-
   final String id;
-  final int number;
-
-  factory OrderTableRefDto.fromJson(Map<String, dynamic> j) {
-    return OrderTableRefDto(
-      id: j['id'] as String,
-      number: (j['number'] as num).toInt(),
-    );
-  }
+  final String number;
+  factory OrderTableRefDto.fromJson(Map<String, dynamic> j) =>
+      OrderTableRefDto(id: j['id']?.toString() ?? '', number: j['number']?.toString() ?? '');
 }
 
 class OrderCustomerRefDto {
-  const OrderCustomerRefDto({
-    required this.id,
-    required this.name,
-    required this.phone,
-  });
-
+  const OrderCustomerRefDto({required this.id, required this.name});
   final String id;
   final String name;
-  final String phone;
-
-  factory OrderCustomerRefDto.fromJson(Map<String, dynamic> j) {
-    return OrderCustomerRefDto(
-      id: j['id'] as String,
-      name: j['name'] as String,
-      phone: (j['phone'] as String?) ?? '',
-    );
-  }
-}
-
-class OrderLineProductDto {
-  const OrderLineProductDto({
-    required this.id,
-    required this.name,
-    this.nameAr,
-    required this.price,
-  });
-
-  final String id;
-  final String name;
-  final String? nameAr;
-  final String price;
-
-  factory OrderLineProductDto.fromJson(Map<String, dynamic> j) {
-    final raw = j['price'];
-    final priceStr =
-        raw is num ? raw.toString() : (raw as String? ?? '0');
-    return OrderLineProductDto(
-      id: j['id'] as String,
-      name: j['name'] as String,
-      nameAr: j['nameAr'] as String?,
-      price: priceStr,
-    );
-  }
+  factory OrderCustomerRefDto.fromJson(Map<String, dynamic> j) =>
+      OrderCustomerRefDto(id: j['id']?.toString() ?? '', name: j['name']?.toString() ?? '');
 }
 
 class OrderLineDto {
   const OrderLineDto({
-    required this.id,
+    required this.productId,
+    required this.productName,
+    this.productNameAr,
     required this.quantity,
     required this.unitPrice,
-    required this.productNameSnapshot,
-    required this.product,
+    required this.lineTotal,
   });
 
-  final String id;
+  final String productId;
+  final String productName;
+  final String? productNameAr;
   final int quantity;
   final String unitPrice;
-  final String? productNameSnapshot;
-  final OrderLineProductDto? product;
+  final String lineTotal;
 
   factory OrderLineDto.fromJson(Map<String, dynamic> j) {
-    final rawPrice = j['unitPrice'];
-    final unitPrice =
-        rawPrice is num ? rawPrice.toString() : (rawPrice as String? ?? '0');
-    final prod = j['product'];
     return OrderLineDto(
-      id: j['id'] as String,
-      quantity: (j['quantity'] as num).toInt(),
-      unitPrice: unitPrice,
-      productNameSnapshot: j['productNameSnapshot'] as String?,
-      product: prod is Map<String, dynamic>
-          ? OrderLineProductDto.fromJson(prod)
-          : null,
+      productId: j['productId']?.toString() ?? '',
+      productName: j['productName']?.toString() ?? '',
+      productNameAr: j['productNameAr'] as String?,
+      quantity: (j['quantity'] as num?)?.toInt() ?? 0,
+      unitPrice: j['unitPrice']?.toString() ?? '0',
+      lineTotal: j['lineTotal']?.toString() ?? '0',
     );
   }
 
-  String displayNameLocalized(bool preferArabic) {
-    final p = product;
-    if (p != null) {
-      if (preferArabic) {
-        final ar = p.nameAr;
-        if (ar != null && ar.trim().isNotEmpty) {
-          return ar.trim();
-        }
-      }
-      return p.name;
+  String displayNameLocalized(bool arabic) {
+    if (arabic && (productNameAr?.trim().isNotEmpty ?? false)) {
+      return productNameAr!.trim();
     }
-    final snap = productNameSnapshot;
-    if (snap != null && snap.isNotEmpty) return snap;
-    return 'Article';
-  }
-
-  /// Libellé FR (comportement historique).
-  String get displayName => displayNameLocalized(false);
-}
-
-class OrderPaymentDto {
-  const OrderPaymentDto({
-    required this.id,
-    required this.amount,
-    required this.method,
-    required this.reference,
-    required this.createdAt,
-  });
-
-  final String id;
-  final String amount;
-  final String method;
-  final String? reference;
-  final String createdAt;
-
-  factory OrderPaymentDto.fromJson(Map<String, dynamic> j) {
-    final raw = j['amount'];
-    final amt =
-        raw is num ? raw.toString() : (raw as String? ?? '0');
-    return OrderPaymentDto(
-      id: j['id'] as String,
-      amount: amt,
-      method: j['method'] as String,
-      reference: j['reference'] as String?,
-      createdAt: j['createdAt']?.toString() ?? '',
-    );
+    return productName;
   }
 }
 
@@ -150,11 +62,10 @@ class OrderTotalsDto {
   final String due;
 
   factory OrderTotalsDto.fromJson(Map<String, dynamic> j) {
-    String s(dynamic v) => v == null ? '0' : v.toString();
     return OrderTotalsDto(
-      subtotal: s(j['subtotal']),
-      paid: s(j['paid']),
-      due: s(j['due']),
+      subtotal: j['subtotal']?.toString() ?? '0',
+      paid: j['paid']?.toString() ?? '0',
+      due: j['due']?.toString() ?? '0',
     );
   }
 }
@@ -165,13 +76,10 @@ class OrderDetailDto {
     required this.orderNumber,
     required this.serviceType,
     required this.status,
-    required this.notes,
     required this.createdAt,
-    required this.updatedAt,
-    required this.diningTable,
-    required this.customer,
+    this.diningTable,
+    this.customer,
     required this.items,
-    required this.payments,
     required this.totals,
   });
 
@@ -179,45 +87,57 @@ class OrderDetailDto {
   final int orderNumber;
   final String serviceType;
   final String status;
-  final String? notes;
   final String createdAt;
-  final String updatedAt;
   final OrderTableRefDto? diningTable;
   final OrderCustomerRefDto? customer;
   final List<OrderLineDto> items;
-  final List<OrderPaymentDto> payments;
   final OrderTotalsDto totals;
 
   factory OrderDetailDto.fromJson(Map<String, dynamic> j) {
-    final dt = j['diningTable'];
-    final cust = j['customer'];
-    final itemsRaw = j['items'] as List<dynamic>? ?? [];
-    final paysRaw = j['payments'] as List<dynamic>? ?? [];
-    final totalsRaw = j['totals'];
-    if (totalsRaw is! Map<String, dynamic>) {
-      throw const FormatException('totaux commande invalides');
-    }
     return OrderDetailDto(
-      id: j['id'] as String,
-      orderNumber: (j['orderNumber'] as num).toInt(),
-      serviceType: j['serviceType'] as String,
-      status: j['status'] as String,
-      notes: j['notes'] as String?,
+      id: j['id']?.toString() ?? '',
+      orderNumber: (j['orderNumber'] as num?)?.toInt() ?? 0,
+      serviceType: j['serviceType']?.toString() ?? 'DINE_IN',
+      status: j['status']?.toString() ?? '',
       createdAt: j['createdAt']?.toString() ?? '',
-      updatedAt: j['updatedAt']?.toString() ?? '',
-      diningTable: dt is Map<String, dynamic>
-          ? OrderTableRefDto.fromJson(dt)
+      diningTable: j['diningTable'] is Map
+          ? OrderTableRefDto.fromJson(j['diningTable'] as Map<String, dynamic>)
           : null,
-      customer: cust is Map<String, dynamic>
-          ? OrderCustomerRefDto.fromJson(cust)
+      customer: j['customer'] is Map
+          ? OrderCustomerRefDto.fromJson(j['customer'] as Map<String, dynamic>)
           : null,
-      items: itemsRaw
+      items: (j['items'] as List? ?? [])
           .map((e) => OrderLineDto.fromJson(e as Map<String, dynamic>))
           .toList(),
-      payments: paysRaw
-          .map((e) => OrderPaymentDto.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      totals: OrderTotalsDto.fromJson(totalsRaw),
+      totals: OrderTotalsDto.fromJson(
+        (j['totals'] as Map<String, dynamic>?) ?? const {},
+      ),
+    );
+  }
+}
+
+class OrderSummaryDto {
+  const OrderSummaryDto({
+    required this.id,
+    required this.orderNumber,
+    required this.status,
+    required this.createdAt,
+    required this.totalFcfa,
+  });
+
+  final String id;
+  final int orderNumber;
+  final String status;
+  final String createdAt;
+  final String totalFcfa;
+
+  factory OrderSummaryDto.fromJson(Map<String, dynamic> j) {
+    return OrderSummaryDto(
+      id: j['id']?.toString() ?? '',
+      orderNumber: (j['orderNumber'] as num?)?.toInt() ?? 0,
+      status: j['status']?.toString() ?? '',
+      createdAt: j['createdAt']?.toString() ?? '',
+      totalFcfa: j['totalFcfa']?.toString() ?? j['subtotal']?.toString() ?? '0',
     );
   }
 }
