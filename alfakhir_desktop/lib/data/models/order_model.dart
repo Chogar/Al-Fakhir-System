@@ -79,6 +79,7 @@ class OrderDetailDto {
     required this.createdAt,
     this.diningTable,
     this.customer,
+    this.notes,
     required this.items,
     required this.totals,
   });
@@ -90,6 +91,7 @@ class OrderDetailDto {
   final String createdAt;
   final OrderTableRefDto? diningTable;
   final OrderCustomerRefDto? customer;
+  final String? notes;
   final List<OrderLineDto> items;
   final OrderTotalsDto totals;
 
@@ -106,6 +108,7 @@ class OrderDetailDto {
       customer: j['customer'] is Map
           ? OrderCustomerRefDto.fromJson(j['customer'] as Map<String, dynamic>)
           : null,
+      notes: j['notes'] as String?,
       items: (j['items'] as List? ?? [])
           .map((e) => OrderLineDto.fromJson(e as Map<String, dynamic>))
           .toList(),

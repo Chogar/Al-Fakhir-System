@@ -474,12 +474,28 @@ let OrdersService = class OrdersService {
             where,
             select: ['id'],
         });
+        const ids = rows.map((r) => r.id);
         let deletedCount = 0;
-        for (const row of rows) {
-            await this.payments.delete({ order: { id: row.id } });
-            await this.orderItems.delete({ order: { id: row.id } });
-            await this.orders.delete({ id: row.id });
-            deletedCount += 1;
+        if (ids.length > 0) {
+            await this.payments
+                .createQueryBuilder()
+                .delete()
+                .from(payment_entity_1.Payment)
+                .where('order_id IN (:...ids)', { ids })
+                .execute();
+            await this.orderItems
+                .createQueryBuilder()
+                .delete()
+                .from(order_item_entity_1.OrderItem)
+                .where('order_id IN (:...ids)', { ids })
+                .execute();
+            const result = await this.orders
+                .createQueryBuilder()
+                .delete()
+                .from(restaurant_order_entity_1.RestaurantOrder)
+                .where('id IN (:...ids)', { ids })
+                .execute();
+            deletedCount = result.affected ?? ids.length;
         }
         return {
             deletedCount,

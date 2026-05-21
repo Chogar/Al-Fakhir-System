@@ -11,7 +11,7 @@ void main() {
       L.customerFooter,
       contains('Merci d\'avoir choisi Restaurant Al-Fakhir'),
     );
-    expect(L.customerFooter, contains('Bonne appétit'));
+    expect(L.customerFooter, contains('Bon appétit'));
   });
 
   test('ReceiptPdfLabels AR — statut payée', () {

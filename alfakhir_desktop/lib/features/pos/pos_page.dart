@@ -149,15 +149,19 @@ class _PosPageState extends State<PosPage> {
 
     try {
       final from = PosSessionStore.toApiFrom(await PosSessionStore.shiftStartedAt());
-      await widget.api.dio.post<Map<String, dynamic>>(
+      final decRes = await widget.api.dio.post<Map<String, dynamic>>(
         '/orders/decaissement',
         queryParameters: {'from': from},
       );
+      final deleted = decRes.data?['deletedCount'];
       await PosSessionStore.resetShift();
       await openCashDrawerAfterSale();
       await _loadHistory();
       if (!mounted) return;
-      TopNotifier.success(context, str.posDecaissementDone);
+      final msg = deleted != null
+          ? '${str.posDecaissementDone} ($deleted ${str.posSessionOrders})'
+          : str.posDecaissementDone;
+      TopNotifier.success(context, msg);
     } on DioException catch (e) {
       if (!mounted) return;
       TopNotifier.error(context, userFacingDioMessage(e, str));
@@ -654,19 +658,25 @@ class _PosPageState extends State<PosPage> {
         arabic: str.isAr,
         discountFcfa: discount,
       );
-      if (outcome != ReceiptPrintOutcome.printed) {
-        await openCashDrawerAfterSale();
-      }
+      final drawerOk = await openCashDrawerAfterSale();
       if (_segment == 2) await _loadHistory();
       await _refresh(silent: true);
       if (!mounted) return;
       switch (outcome) {
         case ReceiptPrintOutcome.printed:
-          TopNotifier.success(context, str.posOrderPaidPrinted);
+          TopNotifier.success(
+            context,
+            drawerOk
+                ? str.posOrderPaidPrinted
+                : '${str.posOrderPaidPrinted} (${str.posDrawerFailed})',
+          );
         case ReceiptPrintOutcome.cancelled:
           TopNotifier.warning(context, str.posOrderSavedPrintCancelled);
         case ReceiptPrintOutcome.failed:
-          TopNotifier.warning(context, str.posOrderSaved);
+          TopNotifier.warning(
+            context,
+            drawerOk ? str.posOrderSaved : '${str.posOrderSaved} — ${str.posDrawerFailed}',
+          );
       }
     } on DioException catch (e) {
       if (mounted) TopNotifier.error(context, userFacingDioMessage(e, str));

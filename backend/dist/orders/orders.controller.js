@@ -40,6 +40,10 @@ let OrdersController = class OrdersController {
         const scopeUserId = this.resolveOrderScopeUserId(req, false);
         return this.orders.findHistory({ from, to, scopeUserId });
     }
+    decaissement(from, req) {
+        const scopeUserId = this.resolveOrderScopeUserId(req, false);
+        return this.orders.performDecaissement({ from, scopeUserId });
+    }
     resolveOrderScopeUserId(req, kitchenMode) {
         if (kitchenMode)
             return undefined;
@@ -67,10 +71,6 @@ let OrdersController = class OrdersController {
         const scopeUserId = this.resolveOrderScopeUserId(req, false);
         return this.orders.addPayment(id, dto, req.user?.id, scopeUserId);
     }
-    decaissement(from, req) {
-        const scopeUserId = this.resolveOrderScopeUserId(req, false);
-        return this.orders.performDecaissement({ from, scopeUserId });
-    }
 };
 exports.OrdersController = OrdersController;
 __decorate([
@@ -91,6 +91,14 @@ __decorate([
     __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", void 0)
 ], OrdersController.prototype, "history", null);
+__decorate([
+    (0, common_1.Post)('decaissement'),
+    __param(0, (0, common_1.Query)('from')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], OrdersController.prototype, "decaissement", null);
 __decorate([
     (0, common_1.Post)(),
     __param(0, (0, common_1.Body)()),
@@ -134,14 +142,6 @@ __decorate([
     __metadata("design:paramtypes", [String, add_payment_dto_1.AddPaymentDto, Object]),
     __metadata("design:returntype", void 0)
 ], OrdersController.prototype, "addPayment", null);
-__decorate([
-    (0, common_1.Post)('decaissement'),
-    __param(0, (0, common_1.Query)('from')),
-    __param(1, (0, common_1.Req)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
-    __metadata("design:returntype", void 0)
-], OrdersController.prototype, "decaissement", null);
 exports.OrdersController = OrdersController = __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, permissions_guard_1.PermissionsGuard),
     (0, permissions_decorator_1.Permissions)('pos.access'),

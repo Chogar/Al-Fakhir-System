@@ -1,86 +1,92 @@
-import 'dart:typed_data';
-
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-
-import '../../data/models/order_model.dart';
-
+/// Libellés ticket (partagés impression thermique / PDF).
 class ReceiptPdfLabels {
-  ReceiptPdfLabels._({
-    required this.date,
-    required this.service,
-    required this.table,
-    required this.client,
-    required this.status,
-    required this.colArticle,
-    required this.colQty,
-    required this.colTotal,
-    required this.subtotal,
-    required this.total,
-  });
+  const ReceiptPdfLabels._(this.ar);
 
-  final String date;
-  final String service;
-  final String table;
-  final String client;
-  final String status;
-  final String colArticle;
-  final String colQty;
-  final String colTotal;
-  final String subtotal;
-  final String total;
+  final bool ar;
 
-  factory ReceiptPdfLabels.french() => ReceiptPdfLabels._(
-        date: 'Date',
-        service: 'Service',
-        table: 'Table',
-        client: 'Client',
-        status: 'Statut',
-        colArticle: 'Article',
-        colQty: 'Qte',
-        colTotal: 'Total',
-        subtotal: 'Sous-total',
-        total: 'Total',
-      );
+  factory ReceiptPdfLabels.arabic() => const ReceiptPdfLabels._(true);
+  factory ReceiptPdfLabels.french() => const ReceiptPdfLabels._(false);
 
-  factory ReceiptPdfLabels.arabic() => ReceiptPdfLabels.french();
+  String receiptNo(int orderNumber) =>
+      ar ? 'إيصال رقم $orderNumber' : 'Reçu n°$orderNumber';
 
-  String receiptNo(int n) => 'Ticket #$n';
+  String get date => ar ? 'التاريخ' : 'Date';
+  String get service => ar ? 'الخدمة' : 'Service';
+  String get table => ar ? 'طاولة' : 'Table';
+  String get client => ar ? 'العميل' : 'Client';
+  String get status => ar ? 'الحالة' : 'Statut';
+  String get colArticle => ar ? 'الصنف' : 'Article';
+  String get colQty => ar ? 'الكمية' : 'Qté';
+  String get colTotal => ar ? 'المجموع' : 'Total';
+  String get subtotal => ar ? 'المجموع الفرعي' : 'Sous-total';
+  String get discount =>
+      ar ? 'تخفيض على المجموع' : 'Réduction sur le montant total';
+  String get total => ar ? 'المجموع' : 'Total';
+  String get paid => ar ? 'المدفوع' : 'Payé';
+  String get due => ar ? 'المتبقي' : 'Reste';
+  String get payments => ar ? 'المدفوعات' : 'Paiements';
 
-  String serviceType(String t) => t == 'DINE_IN' ? 'Sur place' : t;
+  String get customerFooter => ar
+      ? 'شكراً لاختياركم مطعم الفاخر\nبالهناء والشفاء !'
+      : 'Merci d\'avoir choisi Restaurant Al-Fakhir\nBon appétit !';
 
-  String orderStatus(String s) => s;
-}
+  String noteLine(String notes) =>
+      ar ? 'ملاحظة : $notes' : 'Note : $notes';
 
-class ReceiptPdfResult {
-  const ReceiptPdfResult(this.bytes);
-  final Uint8List bytes;
-}
+  String serviceType(String code) {
+    if (!ar) {
+      return switch (code) {
+        'DINE_IN' => 'Sur place',
+        'TAKEAWAY' => 'À emporter',
+        'DELIVERY' => 'Livraison',
+        _ => code,
+      };
+    }
+    return switch (code) {
+      'DINE_IN' => 'داخل الصالة',
+      'TAKEAWAY' => 'سفري',
+      'DELIVERY' => 'توصيل',
+      _ => code,
+    };
+  }
 
-Future<ReceiptPdfResult> exportOrderReceiptPdf({
-  required OrderDetailDto order,
-  required String restaurantName,
-  bool arabic = false,
-  double discountFcfa = 0,
-}) async {
-  final L = arabic ? ReceiptPdfLabels.arabic() : ReceiptPdfLabels.french();
-  final doc = pw.Document();
-  doc.addPage(
-    pw.Page(
-      pageFormat: PdfPageFormat.roll80,
-      build: (ctx) => pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(restaurantName, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-          pw.Text(L.receiptNo(order.orderNumber)),
-          pw.SizedBox(height: 8),
-          for (final line in order.items)
-            pw.Text('${line.displayNameLocalized(arabic)} x${line.quantity}'),
-          pw.Divider(),
-          pw.Text('${L.total}: ${order.totals.subtotal} FCFA'),
-        ],
-      ),
-    ),
-  );
-  return ReceiptPdfResult(Uint8List.fromList(await doc.save()));
+  String orderStatus(String code) {
+    if (!ar) {
+      return switch (code) {
+        'PLACED' => 'Enregistrée',
+        'PREPARING' => 'En préparation',
+        'READY' => 'Prête',
+        'SERVED' => 'Servie',
+        'PAID' => 'Payée',
+        'CANCELLED' => 'Annulée',
+        _ => code,
+      };
+    }
+    return switch (code) {
+      'PLACED' => 'مسجلة',
+      'PREPARING' => 'قيد التحضير',
+      'READY' => 'جاهزة',
+      'SERVED' => 'مقدمة',
+      'PAID' => 'مدفوعة',
+      'CANCELLED' => 'ملغاة',
+      _ => code,
+    };
+  }
+
+  String paymentMethod(String code) {
+    if (!ar) {
+      return switch (code) {
+        'CASH' => 'Espèces',
+        'MOBILE_MONEY' => 'Mobile money',
+        'BANK_CARD' => 'Carte bancaire',
+        _ => code,
+      };
+    }
+    return switch (code) {
+      'CASH' => 'نقداً',
+      'MOBILE_MONEY' => 'محفظة إلكترونية',
+      'BANK_CARD' => 'بطاقة',
+      _ => code,
+    };
+  }
 }
