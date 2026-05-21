@@ -434,6 +434,59 @@ let OrdersService = class OrdersService {
         }
         return this.serialize(await this.findOneEntity(id));
     }
+    parseHistoryBoundary(raw, edge) {
+        if (!raw)
+            return null;
+        const s = raw.trim();
+        if (!s)
+            return null;
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+        if (!m)
+            return null;
+        const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        if (Number.isNaN(dt.getTime()))
+            return null;
+        if (edge === 'start') {
+            dt.setHours(0, 0, 0, 0);
+        }
+        else {
+            dt.setHours(23, 59, 59, 999);
+        }
+        return dt;
+    }
+    async performDecaissement(opts) {
+        const now = new Date();
+        const end = new Date(now);
+        end.setHours(23, 59, 59, 999);
+        let start = this.parseHistoryBoundary(opts?.from, 'start');
+        if (!start) {
+            start = new Date(now);
+            start.setHours(0, 0, 0, 0);
+        }
+        const where = {
+            status: enums_1.OrderWorkflowStatus.PAID,
+            createdAt: (0, typeorm_2.Between)(start, end),
+        };
+        if (opts?.scopeUserId) {
+            where.createdBy = { id: opts.scopeUserId };
+        }
+        const rows = await this.orders.find({
+            where,
+            select: ['id'],
+        });
+        let deletedCount = 0;
+        for (const row of rows) {
+            await this.payments.delete({ order: { id: row.id } });
+            await this.orderItems.delete({ order: { id: row.id } });
+            await this.orders.delete({ id: row.id });
+            deletedCount += 1;
+        }
+        return {
+            deletedCount,
+            periodFrom: start.toISOString(),
+            periodTo: end.toISOString(),
+        };
+    }
 };
 exports.OrdersService = OrdersService;
 exports.OrdersService = OrdersService = __decorate([

@@ -1,1 +1,2 @@
 Printer usb printer port
+drawer_pin=0

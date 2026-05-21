@@ -84,6 +84,20 @@ class AppStrings {
       isAr ? 'تم الحفظ — ألغيت الطباعة' : 'Commande enregistrée — impression annulée';
   String get posOrderSaved => isAr ? 'تم حفظ الطلب' : 'Commande enregistrée';
   String get posPrintFail => isAr ? 'فشل الطباعة' : 'Échec impression';
+  String get posSessionTotal => isAr ? 'مبيعات الجلسة' : 'Ventes de la session';
+  String get posSessionOrders => isAr ? 'طلبات' : 'commandes';
+  String get posDecaissement => isAr ? 'تصفية الصندوق' : 'Décaissement';
+  String get posDecaissementTitle =>
+      isAr ? 'تصفية وإعادة التعيين' : 'Décaissement de caisse';
+  String get posDecaissementConfirm => isAr
+      ? 'سيتم حذف سجل المبيعات لهذه الجلسة وإعادة العداد إلى الصفر. متابعة؟'
+      : 'L\'historique des ventes de cette session sera supprimé et le compteur remis à zéro. Continuer ?';
+  String get posDecaissementDone => isAr
+      ? 'تم التصفية — العداد عند الصفر'
+      : 'Décaissement effectué — compteur remis à zéro';
+  String get posDrawerOpened => isAr ? 'تم فتح الدرج' : 'Tiroir-caisse ouvert';
+  String get posDrawerFailed =>
+      isAr ? 'تعذر فتح الدرج' : 'Ouverture du tiroir impossible (vérifiez l\'imprimante RJ11)';
 
   String get financeModalTitle => isAr ? 'فترة مخصصة' : 'Période personnalisée';
   String get financeModalHint =>

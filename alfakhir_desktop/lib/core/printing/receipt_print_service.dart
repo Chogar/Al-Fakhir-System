@@ -26,6 +26,7 @@ Future<ReceiptPrintOutcome> dispatchReceiptPrint({
     restaurantName: restaurantName,
     printerName: printerName,
     arabic: arabic,
+    openCashDrawer: true,
   );
   if (escOk) return ReceiptPrintOutcome.printed;
 
@@ -41,6 +42,9 @@ Future<ReceiptPrintOutcome> dispatchReceiptPrint({
 
   return ReceiptPrintOutcome.failed;
 }
+
+/// Ouvre le tiroir-caisse (RJ11) après encaissement.
+Future<bool> openCashDrawerAfterSale() => openCashDrawer();
 
 Future<ReceiptPrintOutcome> printOrderReceipt({
   required OrderDetailDto order,

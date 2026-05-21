@@ -7,6 +7,7 @@ import '../../core/api/product_image_uri.dart';
 import '../../core/notifications/top_notifier.dart';
 import '../../core/permissions.dart';
 import '../../core/pos/order_payload_validator.dart';
+import '../../core/pos/pos_session_store.dart';
 import '../../core/printing/receipt_print_service.dart';
 import '../../core/utils/product_sort.dart';
 import '../../data/models/category_model.dart';
@@ -101,14 +102,68 @@ class _PosPageState extends State<PosPage> {
   Future<void> _loadHistory() async {
     setState(() => _historyLoading = true);
     try {
-      final res = await widget.api.dio.get<List<dynamic>>('/orders/history');
+      final from = PosSessionStore.toApiFrom(await PosSessionStore.shiftStartedAt());
+      final res = await widget.api.dio.get<List<dynamic>>(
+        '/orders/history',
+        queryParameters: {'from': from},
+      );
       _historyOrders = (res.data ?? [])
           .map((e) => OrderSummaryDto.fromJson(e as Map<String, dynamic>))
+          .where((o) => o.status == 'PAID')
           .toList();
     } catch (_) {
       _historyOrders = [];
     } finally {
       if (mounted) setState(() => _historyLoading = false);
+    }
+  }
+
+  double get _sessionRevenue {
+    var sum = 0.0;
+    for (final o in _historyOrders) {
+      sum += double.tryParse(o.totalFcfa.replaceAll(',', '.')) ?? 0;
+    }
+    return sum;
+  }
+
+  Future<void> _performDecaissement() async {
+    final str = AppStrings.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(str.posDecaissementTitle),
+        content: Text(str.posDecaissementConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(str.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(str.posDecaissement),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      final from = PosSessionStore.toApiFrom(await PosSessionStore.shiftStartedAt());
+      await widget.api.dio.post<Map<String, dynamic>>(
+        '/orders/decaissement',
+        queryParameters: {'from': from},
+      );
+      await PosSessionStore.resetShift();
+      await openCashDrawerAfterSale();
+      await _loadHistory();
+      if (!mounted) return;
+      TopNotifier.success(context, str.posDecaissementDone);
+    } on DioException catch (e) {
+      if (!mounted) return;
+      TopNotifier.error(context, userFacingDioMessage(e, str));
+    } catch (e) {
+      if (!mounted) return;
+      TopNotifier.error(context, '$e');
     }
   }
 
@@ -379,21 +434,59 @@ class _PosPageState extends State<PosPage> {
   }
 
   Widget _buildHistoryView(AppStrings str) {
-    if (!_viewAllOrders) {
-      return Column(
-        children: [
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          str.posSessionTotal,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_formatFcfa(_sessionRevenue)} · ${_historyOrders.length} ${str.posSessionOrders}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _historyLoading ? null : _performDecaissement,
+                    icon: const Icon(Icons.account_balance_wallet_outlined),
+                    label: Text(str.posDecaissement),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (!_viewAllOrders)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               str.posHistoryScopedHint,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: theme.textTheme.bodySmall,
             ),
           ),
-          Expanded(child: _historyBody(str)),
-        ],
-      );
-    }
-    return _historyBody(str);
+        Expanded(child: _historyBody(str)),
+      ],
+    );
   }
 
   Widget _historyBody(AppStrings str) {
@@ -561,6 +654,10 @@ class _PosPageState extends State<PosPage> {
         arabic: str.isAr,
         discountFcfa: discount,
       );
+      if (outcome != ReceiptPrintOutcome.printed) {
+        await openCashDrawerAfterSale();
+      }
+      if (_segment == 2) await _loadHistory();
       await _refresh(silent: true);
       if (!mounted) return;
       switch (outcome) {

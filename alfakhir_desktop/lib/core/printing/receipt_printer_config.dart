@@ -92,12 +92,34 @@ final class ReceiptPrinterConfig {
     for (final path in paths) {
       final file = File(path);
       if (!file.existsSync()) continue;
-      final line = (await file.readAsString()).trim().split('\n').first.trim();
-      if (line.isNotEmpty && !line.startsWith('#')) {
-        return line;
+      for (final line in (await file.readAsString()).split('\n')) {
+        final t = line.trim();
+        if (t.isEmpty || t.startsWith('#')) continue;
+        if (!t.toLowerCase().startsWith('drawer_pin=')) {
+          return t;
+        }
       }
     }
     return null;
+  }
+
+  /// Broche RJ11 du tiroir (0 ou 1 selon imprimante XP-58 / Xprinter).
+  static Future<int> cashDrawerPin() async {
+    final p = await SharedPreferences.getInstance();
+    final saved = p.getInt('cash_drawer_pin');
+    if (saved == 0 || saved == 1) return saved!;
+    for (final path in _configFilePaths()) {
+      final file = File(path);
+      if (!file.existsSync()) continue;
+      for (final line in (await file.readAsString()).split('\n')) {
+        final t = line.trim().toLowerCase();
+        if (t.startsWith('drawer_pin=')) {
+          final v = int.tryParse(t.split('=').last.trim());
+          if (v == 0 || v == 1) return v!;
+        }
+      }
+    }
+    return 0;
   }
 
   static Future<void> _writeConfigFile(String name) async {

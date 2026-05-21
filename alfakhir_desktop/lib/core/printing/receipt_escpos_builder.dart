@@ -12,11 +12,19 @@ enum EscPosCodePage {
   final int escTValue;
 }
 
+/// Pulse tiroir-caisse (RJ11 sur imprimante) — ESC p m t1 t2.
+Uint8List buildCashDrawerKickBytes({int pin = 0}) {
+  final m = pin.clamp(0, 1);
+  return Uint8List.fromList([0x1B, 0x70, m, 0x19, 0xFA]);
+}
+
 Uint8List buildEscPosTicketBytes({
   required OrderDetailDto order,
   required String restaurantName,
   bool arabic = false,
   EscPosCodePage codePage = EscPosCodePage.windows1252,
+  bool openCashDrawer = true,
+  int cashDrawerPin = 0,
 }) {
   final body = buildReceiptTicketText(
     order: order,
@@ -26,6 +34,9 @@ Uint8List buildEscPosTicketBytes({
   final out = <int>[0x1B, 0x40, 0x1B, 0x74, codePage.escTValue];
   out.addAll(_encode(body, codePage));
   out.addAll([0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x00]);
+  if (openCashDrawer) {
+    out.addAll(buildCashDrawerKickBytes(pin: cashDrawerPin));
+  }
   return Uint8List.fromList(out);
 }
 
