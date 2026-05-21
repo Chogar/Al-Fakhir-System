@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../data/models/order_model.dart';
+import 'receipt_printer_config.dart';
 import 'receipt_ticket_text.dart';
 
 enum EscPosCodePage {
@@ -12,37 +13,50 @@ enum EscPosCodePage {
   final int escTValue;
 }
 
-/// Pulse tiroir-caisse RJ11 (broches 0 et 1 pour compatibilité XP-58).
-Uint8List buildCashDrawerKickBytes({bool bothPins = true, int pin = 0}) {
-  if (bothPins) {
-    return Uint8List.fromList([
-      0x1B, 0x70, 0x00, 0x32, 0xC8,
-      0x1B, 0x70, 0x01, 0x32, 0xC8,
-    ]);
+/// Pulse tiroir RJ11 (ESC p). Durées en ms, converties en unités de 2 ms.
+Uint8List buildCashDrawerKickBytes({
+  bool bothPins = false,
+  int pin = 0,
+  int onMs = 50,
+  int offMs = 500,
+}) {
+  final t1 = (onMs ~/ 2).clamp(1, 255);
+  final t2 = (offMs ~/ 2).clamp(1, 255);
+  void addKick(List<int> out, int m) {
+    out.addAll([0x1B, 0x70, m, t1, t2]);
   }
-  final m = pin.clamp(0, 1);
-  return Uint8List.fromList([0x1B, 0x70, m, 0x32, 0xC8]);
+
+  final out = <int>[];
+  if (bothPins) {
+    addKick(out, 0);
+    addKick(out, 1);
+  } else {
+    addKick(out, pin.clamp(0, 1));
+  }
+  return Uint8List.fromList(out);
 }
 
 Uint8List buildEscPosTicketBytes({
   required OrderDetailDto order,
   required String restaurantName,
   bool arabic = false,
-  double discountFcfa = 0,
   EscPosCodePage codePage = EscPosCodePage.windows1252,
   bool openCashDrawer = true,
+  CashDrawerKickParams? drawerKick,
 }) {
+  final kick = drawerKick ??
+      const CashDrawerKickParams(pin: 0, onMs: 100, offMs: 500);
   final body = buildReceiptTicketText(
     order: order,
     restaurantName: restaurantName,
     arabic: arabic,
-    discountFcfa: discountFcfa,
   );
   return _buildEscPosFromText(
     body,
     codePage: codePage,
     cutPaper: true,
     openCashDrawer: openCashDrawer,
+    drawerKick: kick,
     emphasizeFirstLine: true,
   );
 }
@@ -52,11 +66,21 @@ Uint8List _buildEscPosFromText(
   required EscPosCodePage codePage,
   required bool cutPaper,
   bool openCashDrawer = false,
+  CashDrawerKickParams drawerKick = const CashDrawerKickParams(pin: 0),
   bool emphasizeFirstLine = false,
 }) {
   final out = <int>[];
+  Uint8List drawerPulse() => buildCashDrawerKickBytes(
+        bothPins: drawerKick.bothPins,
+        pin: drawerKick.pin,
+        onMs: drawerKick.onMs,
+        offMs: drawerKick.offMs,
+      );
 
   out.addAll([0x1B, 0x40]);
+  if (openCashDrawer) {
+    out.addAll(drawerPulse());
+  }
   out.addAll([0x1B, 0x32]);
   out.addAll([0x1B, 0x74, codePage.escTValue]);
   out.addAll([0x1B, 0x4D, 0x00]);
@@ -81,7 +105,7 @@ Uint8List _buildEscPosFromText(
 
   out.addAll([0x1B, 0x64, 0x04]);
   if (openCashDrawer) {
-    out.addAll(buildCashDrawerKickBytes());
+    out.addAll(drawerPulse());
   }
   if (cutPaper) {
     out.addAll([0x1D, 0x56, 0x00]);

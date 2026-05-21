@@ -8,6 +8,7 @@ import '../../core/notifications/top_notifier.dart';
 import '../../core/permissions.dart';
 import '../../core/pos/order_payload_validator.dart';
 import '../../core/pos/pos_session_store.dart';
+import '../../core/printing/receipt_escpos_printer.dart';
 import '../../core/printing/receipt_print_service.dart';
 import '../../core/utils/product_sort.dart';
 import '../../data/models/category_model.dart';
@@ -36,14 +37,12 @@ class _PosPageState extends State<PosPage> {
 
   List<CategoryDto> _categories = [];
   List<ProductDto> _products = [];
-  List<Map<String, dynamic>> _tables = [];
   List<OrderSummaryDto> _historyOrders = [];
   bool _historyLoading = false;
   bool _submittingOrder = false;
 
   String? _categorySlug;
   String _serviceType = 'DINE_IN';
-  String? _tableId;
   final Map<String, int> _cart = {};
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -74,7 +73,6 @@ class _PosPageState extends State<PosPage> {
         '/products',
         queryParameters: const {'sort': 'bestseller'},
       );
-      final tableRes = await widget.api.dio.get<List<dynamic>>('/tables');
       _categories = (catRes.data ?? [])
           .map((e) => CategoryDto.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -82,7 +80,6 @@ class _PosPageState extends State<PosPage> {
           .map((e) => ProductDto.fromJson(e as Map<String, dynamic>))
           .where((p) => p.isAvailable)
           .toList();
-      _tables = (tableRes.data ?? []).cast<Map<String, dynamic>>();
       if (mounted) {
         final str = AppStrings.of(context);
         sortProductsAlphabetically(_products, preferArabic: str.isAr);
@@ -155,7 +152,13 @@ class _PosPageState extends State<PosPage> {
       );
       final deleted = decRes.data?['deletedCount'];
       await PosSessionStore.resetShift();
-      await openCashDrawerAfterSale();
+      if (mounted) {
+        setState(() {
+          _historyOrders = [];
+          _historyLoading = false;
+        });
+      }
+      await openCashDrawerKick();
       await _loadHistory();
       if (!mounted) return;
       final msg = deleted != null
@@ -403,22 +406,6 @@ class _PosPageState extends State<PosPage> {
               ],
               onChanged: (v) => setState(() => _serviceType = v ?? 'DINE_IN'),
             ),
-            if (_serviceType == 'DINE_IN') ...[
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String?>(
-                value: _tableId,
-                decoration: InputDecoration(labelText: str.posTable, isDense: true),
-                items: [
-                  DropdownMenuItem(value: null, child: Text(str.posTableNone)),
-                  for (final t in _tables)
-                    DropdownMenuItem(
-                      value: t['id']?.toString(),
-                      child: Text(t['number']?.toString() ?? '—'),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _tableId = v),
-              ),
-            ],
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _submittingOrder ? null : _submitOrder,
@@ -519,7 +506,6 @@ class _PosPageState extends State<PosPage> {
     final issue = validateOrderPayload(
       cart: _cart,
       serviceType: _serviceType,
-      tableId: _tableId,
     );
     if (issue != null) {
       final msg = issue.message == 'Ajoutez au moins un produit'
@@ -532,7 +518,6 @@ class _PosPageState extends State<PosPage> {
     final body = <String, dynamic>{
       'serviceType': _serviceType,
       'items': items,
-      if (_tableId != null && _serviceType == 'DINE_IN') 'diningTableId': _tableId,
     };
 
     OrderDetailDto? created;
@@ -652,13 +637,16 @@ class _PosPageState extends State<PosPage> {
 
     try {
       var settled = await _applyPaymentsWithDiscount(order, discount);
+      settled = await _fetchOrderForReceipt(settled.id, fallback: settled);
+      final drawerOk = await openCashDrawerKick();
       final outcome = await printOrderReceipt(
         order: settled,
         restaurantName: str.appTitle,
         arabic: str.isAr,
         discountFcfa: discount,
       );
-      final drawerOk = await openCashDrawerAfterSale();
+      final drawerOkAfterPrint =
+          drawerOk ? true : await openCashDrawerKick();
       if (_segment == 2) await _loadHistory();
       await _refresh(silent: true);
       if (!mounted) return;
@@ -666,7 +654,7 @@ class _PosPageState extends State<PosPage> {
         case ReceiptPrintOutcome.printed:
           TopNotifier.success(
             context,
-            drawerOk
+            drawerOkAfterPrint
                 ? str.posOrderPaidPrinted
                 : '${str.posOrderPaidPrinted} (${str.posDrawerFailed})',
           );
@@ -675,7 +663,9 @@ class _PosPageState extends State<PosPage> {
         case ReceiptPrintOutcome.failed:
           TopNotifier.warning(
             context,
-            drawerOk ? str.posOrderSaved : '${str.posOrderSaved} — ${str.posDrawerFailed}',
+            drawerOkAfterPrint
+                ? str.posOrderSaved
+                : '${str.posOrderSaved} — ${str.posDrawerFailed}',
           );
       }
     } on DioException catch (e) {
@@ -683,6 +673,23 @@ class _PosPageState extends State<PosPage> {
     } catch (e) {
       if (mounted) TopNotifier.error(context, '$e');
     }
+  }
+
+  Future<OrderDetailDto> _fetchOrderForReceipt(
+    String orderId, {
+    required OrderDetailDto fallback,
+  }) async {
+    try {
+      final res = await widget.api.dio.get<Map<String, dynamic>>(
+        '/orders/$orderId',
+      );
+      if (res.data != null) {
+        return OrderDetailDto.fromJson(res.data!);
+      }
+    } catch (_) {
+      // Garde la commande locale si l'API ne repond pas.
+    }
+    return fallback;
   }
 
   Future<OrderDetailDto> _applyPaymentsWithDiscount(

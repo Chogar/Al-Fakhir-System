@@ -102,69 +102,11 @@ if (-not (Test-Path (Join-Path $BackendDest ".env"))) {
   }
 }
 
-$launcher = @'
-$ErrorActionPreference = "Stop"
-$InstallRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$AppExe = Join-Path $InstallRoot "app\alfakhir_desktop.exe"
-$BackendScript = Join-Path $InstallRoot "start-backend.ps1"
-$HealthUrl = "http://127.0.0.1:3000/api/health"
-
-function Test-ApiHealth {
-  try {
-    $r = Invoke-WebRequest -Uri $HealthUrl -UseBasicParsing -TimeoutSec 2
-    return $r.StatusCode -eq 200
-  } catch { return $false }
+Copy-Item (Join-Path $Root "install\Al-Fakhir.ps1") (Join-Path $InstallDir "Al-Fakhir.ps1") -Force
+Copy-Item (Join-Path $Root "install\start-backend.ps1") (Join-Path $InstallDir "start-backend.ps1") -Force
+if (Test-Path (Join-Path $Root "install\Al-Fakhir.vbs")) {
+  Copy-Item (Join-Path $Root "install\Al-Fakhir.vbs") (Join-Path $InstallDir "Al-Fakhir.vbs") -Force
 }
-
-if (-not (Test-ApiHealth)) {
-  Write-Host "Demarrage du serveur local..." -ForegroundColor Cyan
-  Start-Process powershell -WindowStyle Hidden -ArgumentList @(
-    "-NoProfile", "-ExecutionPolicy", "Bypass",
-    "-File", $BackendScript
-  ) | Out-Null
-  $deadline = (Get-Date).AddSeconds(45)
-  while ((Get-Date) -lt $deadline) {
-    if (Test-ApiHealth) { break }
-    Start-Sleep -Milliseconds 500
-  }
-  if (-not (Test-ApiHealth)) {
-    Write-Host ""
-    Write-Host "L'API ne repond pas. Verifiez PostgreSQL et backend\.env puis relancez." -ForegroundColor Red
-    Write-Host "  winget install PostgreSQL.PostgreSQL.17" -ForegroundColor Yellow
-    Write-Host "  powershell -File setup_postgres.ps1  (depuis le dossier projet)" -ForegroundColor Yellow
-    Read-Host "Appuyez sur Entree pour fermer"
-    exit 1
-  }
-}
-
-Start-Process -FilePath $AppExe -WorkingDirectory (Split-Path $AppExe)
-'@
-
-$startBackend = @'
-$ErrorActionPreference = "Stop"
-$Backend = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "backend"
-Set-Location $Backend
-
-function Resolve-NodeDir {
-  foreach ($p in @("C:\Program Files\nodejs", "C:\Program Files (x86)\nodejs")) {
-    if (Test-Path (Join-Path $p "node.exe")) { return $p }
-  }
-  $node = Get-Command node.exe -ErrorAction SilentlyContinue
-  if ($node) { return Split-Path -Parent $node.Source }
-  return $null
-}
-
-$nodeDir = Resolve-NodeDir
-if (-not $nodeDir) { exit 1 }
-if (($env:Path -split ';' | Where-Object { $_ -eq $nodeDir }).Count -eq 0) {
-  $env:Path = "$nodeDir;$env:Path"
-}
-$nodeExe = Join-Path $nodeDir "node.exe"
-& $nodeExe dist/main.js
-'@
-
-Set-Content -Path (Join-Path $InstallDir "Al-Fakhir.ps1") -Value $launcher -Encoding UTF8
-Set-Content -Path (Join-Path $InstallDir "start-backend.ps1") -Value $startBackend -Encoding UTF8
 
 $psExe = (Get-Command powershell.exe).Source
 $launchArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'Al-Fakhir.ps1')`""

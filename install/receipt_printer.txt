@@ -1,2 +1,6 @@
-Printer usb printer port
+XP-58C
+drawer_model=GF-405
 drawer_pin=0
+drawer_both_pins=1
+drawer_on_ms=150
+drawer_off_ms=600

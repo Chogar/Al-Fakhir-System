@@ -9,7 +9,6 @@ import '../finance/finance_page.dart';
 import '../menu/menu_page.dart';
 import '../pos/pos_page.dart';
 import '../statistics/statistics_page.dart';
-import '../tables/tables_page.dart';
 import '../users/users_page.dart';
 
 class MainShellScreen extends StatefulWidget {
@@ -31,16 +30,14 @@ class _MainShellScreenState extends State<MainShellScreen> {
       case 0:
         return str.navHome;
       case 1:
-        return str.navTables;
-      case 2:
         return str.navPos;
-      case 3:
+      case 2:
         return str.navMenu;
-      case 4:
+      case 3:
         return str.navFinance;
-      case 5:
+      case 4:
         return str.navStats;
-      case 6:
+      case 5:
         return str.navUsers;
       default:
         return str.appTitle;
@@ -55,7 +52,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
     final pages = <Widget>[
       DashboardPage(api: widget.api, user: widget.user),
-      TablesPage(api: widget.api),
       PosPage(key: _posKey, api: widget.api, user: widget.user),
       MenuPage(api: widget.api),
       FinancePage(api: widget.api, user: widget.user),
@@ -91,10 +87,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
               NavigationRailDestination(
                 icon: const Icon(Icons.home_outlined),
                 label: Text(str.navHome),
-              ),
-              NavigationRailDestination(
-                icon: const Icon(Icons.table_restaurant_outlined),
-                label: Text(str.navTables),
               ),
               NavigationRailDestination(
                 icon: const Icon(Icons.point_of_sale_outlined),

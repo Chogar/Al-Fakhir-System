@@ -14,6 +14,21 @@ class OrderCustomerRefDto {
       OrderCustomerRefDto(id: j['id']?.toString() ?? '', name: j['name']?.toString() ?? '');
 }
 
+Map<String, dynamic>? _jsonMap(dynamic value) {
+  if (value == null) return null;
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+bool _usableReceiptLabel(String? value) {
+  if (value == null) return false;
+  final t = value.trim();
+  if (t.isEmpty) return false;
+  if (RegExp(r'^[?\s\uFFFD]+$').hasMatch(t)) return false;
+  return true;
+}
+
 class OrderLineDto {
   const OrderLineDto({
     required this.productId,
@@ -32,13 +47,40 @@ class OrderLineDto {
   final String lineTotal;
 
   factory OrderLineDto.fromJson(Map<String, dynamic> j) {
+    final productMap = _jsonMap(j['product']);
+
+    var name = j['productName']?.toString().trim() ?? '';
+    if (name.isEmpty) {
+      name = j['productNameSnapshot']?.toString().trim() ?? '';
+    }
+    if (name.isEmpty && productMap != null) {
+      name = productMap['name']?.toString().trim() ?? '';
+    }
+
+    var nameAr = j['productNameAr'] as String?;
+    if ((nameAr == null || nameAr.trim().isEmpty) && productMap != null) {
+      nameAr = productMap['nameAr'] as String?;
+    }
+
+    final qty = (j['quantity'] as num?)?.toInt() ?? 0;
+    final unit = j['unitPrice']?.toString() ?? '0';
+    var lineTotal = j['lineTotal']?.toString() ?? '';
+    if (lineTotal.isEmpty && qty > 0) {
+      final u = double.tryParse(unit.replaceAll(',', '.')) ?? 0;
+      lineTotal = (u * qty).toStringAsFixed(2);
+    }
+
+    final productId = j['productId']?.toString() ??
+        productMap?['id']?.toString() ??
+        '';
+
     return OrderLineDto(
-      productId: j['productId']?.toString() ?? '',
-      productName: j['productName']?.toString() ?? '',
-      productNameAr: j['productNameAr'] as String?,
-      quantity: (j['quantity'] as num?)?.toInt() ?? 0,
-      unitPrice: j['unitPrice']?.toString() ?? '0',
-      lineTotal: j['lineTotal']?.toString() ?? '0',
+      productId: productId,
+      productName: name,
+      productNameAr: nameAr,
+      quantity: qty,
+      unitPrice: unit,
+      lineTotal: lineTotal.isEmpty ? '0' : lineTotal,
     );
   }
 
@@ -46,7 +88,19 @@ class OrderLineDto {
     if (arabic && (productNameAr?.trim().isNotEmpty ?? false)) {
       return productNameAr!.trim();
     }
-    return productName;
+    final fr = productName.trim();
+    if (fr.isNotEmpty) return fr;
+    return productNameAr?.trim() ?? '';
+  }
+
+  /// Libellé garanti non vide pour ticket / facture (évite noms arabes corrompus).
+  String labelForReceipt(bool arabic) {
+    if (arabic && _usableReceiptLabel(productNameAr)) {
+      return productNameAr!.trim();
+    }
+    if (_usableReceiptLabel(productName)) return productName.trim();
+    if (_usableReceiptLabel(productNameAr)) return productNameAr!.trim();
+    return 'Article';
   }
 }
 
@@ -110,7 +164,7 @@ class OrderDetailDto {
           : null,
       notes: j['notes'] as String?,
       items: (j['items'] as List? ?? [])
-          .map((e) => OrderLineDto.fromJson(e as Map<String, dynamic>))
+          .map((e) => OrderLineDto.fromJson(_jsonMap(e) ?? const {}))
           .toList(),
       totals: OrderTotalsDto.fromJson(
         (j['totals'] as Map<String, dynamic>?) ?? const {},

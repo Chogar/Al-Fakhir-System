@@ -72,17 +72,21 @@ if (-not (Test-PostgresPort)) {
 }
 
 if (-not (Test-ApiHealth)) {
-  Write-Host "Demarrage du serveur local..." -ForegroundColor Cyan
+  Write-Host "Demarrage du serveur local (patientez 10-30 s)..." -ForegroundColor Cyan
   New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
   Start-Process powershell -WindowStyle Hidden -WorkingDirectory $InstallRoot -ArgumentList @(
     "-NoProfile", "-ExecutionPolicy", "Bypass",
     "-File", $BackendScript
   ) | Out-Null
   $deadline = (Get-Date).AddSeconds(90)
+  $dots = 0
   while ((Get-Date) -lt $deadline) {
     if (Test-ApiHealth) { break }
+    $dots = ($dots + 1) % 4
+    Write-Host "`r  En cours$('.' * $dots)   " -NoNewline -ForegroundColor DarkGray
     Start-Sleep -Milliseconds 750
   }
+  Write-Host ""
   if (-not (Test-ApiHealth)) {
     Write-Host ""
     Write-Host "L'API ne repond pas sur http://127.0.0.1:3000/api" -ForegroundColor Red

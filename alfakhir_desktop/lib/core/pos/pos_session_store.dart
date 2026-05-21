@@ -24,6 +24,6 @@ final class PosSessionStore {
     await p.setString(_shiftStartKey, DateTime.now().toIso8601String());
   }
 
-  static String toApiFrom(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  /// Date/heure ISO pour filtrer l'historique depuis le dernier décaissement.
+  static String toApiFrom(DateTime d) => d.toIso8601String();
 }

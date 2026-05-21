@@ -1,41 +1,50 @@
+import 'dart:typed_data';
+
 import '../../data/models/order_model.dart';
-import 'receipt_escpos_builder.dart';
 import 'receipt_escpos_printer.dart';
+import 'receipt_pdf.dart';
 import 'receipt_printer_config.dart';
-import 'receipt_win32_printer.dart';
+import 'receipt_text_printer.dart';
 
 enum ReceiptPrintOutcome { printed, cancelled, failed }
 
-String? _cachedPrinterName;
-
-/// Impression ticket thermique XP-58 (design complet + tiroir).
-Future<ReceiptPrintOutcome> printThermalReceipt({
+Future<ReceiptPrintOutcome> dispatchReceiptPrint({
+  required Uint8List pdfBytes,
+  required String jobName,
   required OrderDetailDto order,
   required String restaurantName,
   bool arabic = false,
-  double discountFcfa = 0,
+  bool interactive = false,
 }) async {
-  final printerName =
-      _cachedPrinterName ?? await ReceiptPrinterConfig.resolveThermalPrinterName();
-  if (printerName == null || printerName.isEmpty) {
-    return ReceiptPrintOutcome.failed;
-  }
-  _cachedPrinterName = printerName;
-
-  if (ReceiptPrinterConfig.isVirtualPrinter(printerName)) {
+  if (pdfBytes.isEmpty && jobName.isEmpty && !interactive) {
     return ReceiptPrintOutcome.failed;
   }
 
-  final bytes = buildEscPosTicketBytes(
+  final printerName = await ReceiptPrinterConfig.resolveThermalPrinterName();
+
+  final escOk = await printOrderReceiptEscPos(
     order: order,
     restaurantName: restaurantName,
+    printerName: printerName,
     arabic: arabic,
-    discountFcfa: discountFcfa,
     openCashDrawer: true,
   );
+  if (escOk) return ReceiptPrintOutcome.printed;
 
-  final ok = sendRawToWindowsPrinter(printerName, bytes);
-  return ok ? ReceiptPrintOutcome.printed : ReceiptPrintOutcome.failed;
+  if (printerName != null && printerName.isNotEmpty) {
+    final textOk = await printOrderReceiptAsText(
+      order: order,
+      restaurantName: restaurantName,
+      printerName: printerName,
+      arabic: arabic,
+    );
+    if (textOk) {
+      await openCashDrawerKick(printerName: printerName);
+      return ReceiptPrintOutcome.printed;
+    }
+  }
+
+  return ReceiptPrintOutcome.failed;
 }
 
 Future<ReceiptPrintOutcome> printOrderReceipt({
@@ -44,18 +53,19 @@ Future<ReceiptPrintOutcome> printOrderReceipt({
   bool arabic = false,
   double discountFcfa = 0,
 }) async {
-  return printThermalReceipt(
+  final _ = discountFcfa;
+  final pdf = await exportOrderReceiptPdf(
     order: order,
     restaurantName: restaurantName,
     arabic: arabic,
     discountFcfa: discountFcfa,
   );
-}
-
-/// Ouvre le tiroir (commande séparée, les deux broches RJ11).
-Future<bool> openCashDrawerAfterSale() async {
-  final printerName =
-      _cachedPrinterName ?? await ReceiptPrinterConfig.resolveThermalPrinterName();
-  if (printerName == null || printerName.isEmpty) return false;
-  return sendRawToWindowsPrinter(printerName, buildCashDrawerKickBytes());
+  return dispatchReceiptPrint(
+    pdfBytes: pdf.bytes,
+    jobName: 'Ticket ${order.orderNumber}',
+    order: order,
+    restaurantName: restaurantName,
+    arabic: arabic,
+    interactive: false,
+  );
 }

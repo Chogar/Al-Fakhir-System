@@ -98,20 +98,33 @@ let OrdersService = class OrdersService {
                     phone: order.customer.phone ?? '',
                 }
                 : null,
-            items: (order.items ?? []).map((line) => ({
-                id: line.id,
-                quantity: line.quantity,
-                unitPrice: line.unitPrice,
-                productNameSnapshot: line.productNameSnapshot,
-                product: line.product
-                    ? {
-                        id: line.product.id,
-                        name: line.product.name,
-                        nameAr: line.product.nameAr ?? null,
-                        price: line.product.price,
-                    }
-                    : null,
-            })),
+            items: (order.items ?? []).map((line) => {
+                const snap = line.productNameSnapshot ?? '';
+                const liveName = line.product?.name ?? '';
+                const name = snap || liveName;
+                const nameAr = line.product?.nameAr ?? null;
+                const qty = Number(line.quantity);
+                const unit = Number(line.unitPrice);
+                const lineTotal = (qty * unit).toFixed(2);
+                return {
+                    id: line.id,
+                    productId: line.product?.id ?? null,
+                    quantity: line.quantity,
+                    unitPrice: line.unitPrice,
+                    lineTotal,
+                    productName: name,
+                    productNameAr: nameAr,
+                    productNameSnapshot: snap || name,
+                    product: line.product
+                        ? {
+                            id: line.product.id,
+                            name: line.product.name,
+                            nameAr: line.product.nameAr ?? null,
+                            price: line.product.price,
+                        }
+                        : null,
+                };
+            }),
             payments: (order.payments ?? []).map((p) => ({
                 id: p.id,
                 amount: p.amount,
@@ -235,17 +248,23 @@ let OrdersService = class OrdersService {
     }
     async findHistory(opts) {
         const now = new Date();
-        let end = opts?.to ? new Date(opts.to) : new Date(now);
+        let end = this.parseHistoryBoundary(opts?.to, 'end') ?? new Date(now);
         if (Number.isNaN(end.getTime()))
             end = new Date(now);
-        end.setHours(23, 59, 59, 999);
+        const toRaw = (opts?.to ?? '').trim();
+        if (!toRaw || /^\d{4}-\d{2}-\d{2}$/.test(toRaw)) {
+            end.setHours(23, 59, 59, 999);
+        }
         const fallbackStart = new Date(now);
         fallbackStart.setFullYear(fallbackStart.getFullYear() - 1);
         fallbackStart.setHours(0, 0, 0, 0);
-        let start = opts?.from ? new Date(opts.from) : new Date(fallbackStart);
+        let start = this.parseHistoryBoundary(opts?.from, 'start') ?? new Date(fallbackStart);
         if (Number.isNaN(start.getTime()))
             start = new Date(fallbackStart);
-        start.setHours(0, 0, 0, 0);
+        const fromRaw = (opts?.from ?? '').trim();
+        if (!fromRaw.includes('T') && /^\d{4}-\d{2}-\d{2}$/.test(fromRaw)) {
+            start.setHours(0, 0, 0, 0);
+        }
         const where = {
             status: (0, typeorm_2.In)([enums_1.OrderWorkflowStatus.PAID, enums_1.OrderWorkflowStatus.CANCELLED]),
             createdAt: (0, typeorm_2.Between)(start, end),
@@ -440,6 +459,25 @@ let OrdersService = class OrdersService {
         const s = raw.trim();
         if (!s)
             return null;
+        if (s.includes('T') || /^\d{4}-\d{2}-\d{2}[ T]\d/.test(s)) {
+            const parsed = Date.parse(s);
+            if (!Number.isNaN(parsed)) {
+                return new Date(parsed);
+            }
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+            const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+            if (Number.isNaN(dt.getTime()))
+                return null;
+            if (edge === 'start') {
+                dt.setHours(0, 0, 0, 0);
+            }
+            else {
+                dt.setHours(23, 59, 59, 999);
+            }
+            return dt;
+        }
         const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
         if (!m)
             return null;

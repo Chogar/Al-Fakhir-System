@@ -7,14 +7,10 @@ class OrderPayloadIssue {
 OrderPayloadIssue? validateOrderPayload({
   required Map<String, int> cart,
   required String serviceType,
-  required String? tableId,
 }) {
   final hasItems = cart.entries.any((entry) => entry.value > 0);
   if (!hasItems) {
     return const OrderPayloadIssue('Ajoutez au moins un produit');
-  }
-  if (serviceType == 'DINE_IN' && (tableId == null || tableId.trim().isEmpty)) {
-    return const OrderPayloadIssue('Sélectionnez une table pour le service sur place');
   }
   return null;
 }
