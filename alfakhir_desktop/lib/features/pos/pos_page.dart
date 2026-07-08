@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
@@ -8,8 +10,11 @@ import '../../core/notifications/top_notifier.dart';
 import '../../core/permissions.dart';
 import '../../core/pos/order_payload_validator.dart';
 import '../../core/pos/pos_session_store.dart';
+import '../../core/printing/order_receipt_enricher.dart';
 import '../../core/printing/receipt_escpos_printer.dart';
 import '../../core/printing/receipt_print_service.dart';
+import '../../core/printing/receipt_printer_cache.dart';
+import '../../core/printing/receipt_ticket_cache.dart';
 import '../../core/utils/product_sort.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/order_model.dart';
@@ -38,6 +43,7 @@ class _PosPageState extends State<PosPage> {
   List<CategoryDto> _categories = [];
   List<ProductDto> _products = [];
   List<OrderSummaryDto> _historyOrders = [];
+  String? _historyError;
   bool _historyLoading = false;
   bool _submittingOrder = false;
 
@@ -51,6 +57,7 @@ class _PosPageState extends State<PosPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(ReceiptPrinterCache.warmUp());
     _refresh();
   }
 
@@ -71,18 +78,24 @@ class _PosPageState extends State<PosPage> {
       final catRes = await widget.api.dio.get<List<dynamic>>('/categories');
       final prodRes = await widget.api.dio.get<List<dynamic>>(
         '/products',
-        queryParameters: const {'sort': 'bestseller'},
+        queryParameters: const {'sort': 'category'},
       );
-      _categories = (catRes.data ?? [])
-          .map((e) => CategoryDto.fromJson(e as Map<String, dynamic>))
-          .toList();
+      _categories = dedupeCategoriesForMenu(
+        (catRes.data ?? [])
+            .map((e) => CategoryDto.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
       _products = (prodRes.data ?? [])
           .map((e) => ProductDto.fromJson(e as Map<String, dynamic>))
           .where((p) => p.isAvailable)
           .toList();
       if (mounted) {
         final str = AppStrings.of(context);
-        sortProductsAlphabetically(_products, preferArabic: str.isAr);
+        sortProductsByCategory(
+          _products,
+          categories: _categories,
+          preferArabic: str.isAr,
+        );
       }
       if (_segment == 2) await _loadHistory();
     } on DioException catch (e) {
@@ -96,8 +109,27 @@ class _PosPageState extends State<PosPage> {
     }
   }
 
+  Future<void> _reloadHistoryAfterSale() async {
+    try {
+      final from = PosSessionStore.toApiFrom(await PosSessionStore.shiftStartedAt());
+      final res = await widget.api.dio.get<List<dynamic>>(
+        '/orders/history',
+        queryParameters: {'from': from},
+      );
+      if (!mounted) return;
+      setState(() {
+        _historyOrders = (res.data ?? [])
+            .map((e) => OrderSummaryDto.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+    } catch (_) {}
+  }
+
   Future<void> _loadHistory() async {
-    setState(() => _historyLoading = true);
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
     try {
       final from = PosSessionStore.toApiFrom(await PosSessionStore.shiftStartedAt());
       final res = await widget.api.dio.get<List<dynamic>>(
@@ -108,8 +140,14 @@ class _PosPageState extends State<PosPage> {
           .map((e) => OrderSummaryDto.fromJson(e as Map<String, dynamic>))
           .where((o) => o.status == 'PAID')
           .toList();
-    } catch (_) {
+    } on DioException catch (e) {
       _historyOrders = [];
+      if (mounted) {
+        _historyError = userFacingDioMessage(e, AppStrings.of(context));
+      }
+    } catch (e) {
+      _historyOrders = [];
+      _historyError = e.toString();
     } finally {
       if (mounted) setState(() => _historyLoading = false);
     }
@@ -121,6 +159,44 @@ class _PosPageState extends State<PosPage> {
       sum += double.tryParse(o.totalFcfa.replaceAll(',', '.')) ?? 0;
     }
     return sum;
+  }
+
+  Future<void> _cancelSale(OrderSummaryDto order) async {
+    final str = AppStrings.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(str.posCancelSaleTitle),
+        content: Text(str.posCancelSaleConfirm(order.orderNumber)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(str.cancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(str.posCancelSale),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      await widget.api.dio.post<void>('/orders/${order.id}/cancel');
+      await _loadHistory();
+      if (!mounted) return;
+      TopNotifier.success(context, str.posSaleCancelled);
+    } on DioException catch (e) {
+      if (!mounted) return;
+      TopNotifier.error(context, userFacingDioMessage(e, str));
+    } catch (e) {
+      if (!mounted) return;
+      TopNotifier.error(context, '$e');
+    }
   }
 
   Future<void> _performDecaissement() async {
@@ -484,18 +560,64 @@ class _PosPageState extends State<PosPage> {
     if (_historyLoading && _historyOrders.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
+    if (_historyError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_historyError!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: _loadHistory, child: Text(str.retry)),
+            ],
+          ),
+        ),
+      );
+    }
     if (_historyOrders.isEmpty) {
-      return Center(child: Text(str.statsNoData));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            str.isAr
+                ? 'لا مبيعات في هذه الجلسة — أنشئ طلباً ثم أكّده'
+                : 'Aucune vente dans cette session — créez une commande puis validez-la',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _historyOrders.length,
       itemBuilder: (_, i) {
         final o = _historyOrders[i];
-        return ListTile(
-          title: Text('${str.posOrderTitle} #${o.orderNumber}'),
-          subtitle: Text(o.createdAt),
-          trailing: Text('${o.totalFcfa} FCFA'),
+        final cs = Theme.of(context).colorScheme;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            title: Text('${str.posOrderTitle} #${o.orderNumber}'),
+            subtitle: Text(o.createdAt),
+            trailing: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              children: [
+                Text(
+                  '${o.totalFcfa} FCFA',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    foregroundColor: cs.error,
+                  ),
+                  onPressed: () => _cancelSale(o),
+                  icon: const Icon(Icons.undo_outlined, size: 18),
+                  label: Text(str.posCancelSale),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -549,6 +671,15 @@ class _PosPageState extends State<PosPage> {
     final subtotal =
         double.tryParse(order.totals.subtotal.replaceAll(',', '.')) ?? 0;
     final discountCtrl = TextEditingController(text: '0');
+
+    unawaited(
+      ReceiptTicketCache.prepareAsync(
+        order: order,
+        restaurantName: str.appTitle,
+        arabic: str.isAr,
+        productCatalog: _products,
+      ),
+    );
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -623,7 +754,8 @@ class _PosPageState extends State<PosPage> {
     );
 
     if (confirmed != true || !mounted) {
-      await _refresh(silent: true);
+      ReceiptTicketCache.clear();
+      unawaited(_reloadHistoryAfterSale());
       if (mounted) TopNotifier.warning(context, str.posOrderSaved);
       return;
     }
@@ -635,61 +767,81 @@ class _PosPageState extends State<PosPage> {
     final discount =
         parsed < 0 ? 0.0 : (parsed > subtotal ? subtotal : parsed);
 
-    try {
-      var settled = await _applyPaymentsWithDiscount(order, discount);
-      settled = await _fetchOrderForReceipt(settled.id, fallback: settled);
-      final drawerOk = await openCashDrawerKick();
-      final outcome = await printOrderReceipt(
-        order: settled,
+    if (discount > 0.009) {
+      await ReceiptTicketCache.prepareAsync(
+        order: order,
         restaurantName: str.appTitle,
         arabic: str.isAr,
+        productCatalog: _products,
         discountFcfa: discount,
       );
-      final drawerOkAfterPrint =
-          drawerOk ? true : await openCashDrawerKick();
-      if (_segment == 2) await _loadHistory();
-      await _refresh(silent: true);
-      if (!mounted) return;
-      switch (outcome) {
-        case ReceiptPrintOutcome.printed:
-          TopNotifier.success(
-            context,
-            drawerOkAfterPrint
-                ? str.posOrderPaidPrinted
-                : '${str.posOrderPaidPrinted} (${str.posDrawerFailed})',
+    } else {
+      await ReceiptTicketCache.waitForReady();
+    }
+    final ticketBytes = ReceiptTicketCache.takeForOrder(order.id);
+    final forReceipt = enrichOrderForReceipt(order, catalog: _products);
+
+    try {
+      ReceiptPrintResult printResult = const ReceiptPrintResult(
+        outcome: ReceiptPrintOutcome.failed,
+        drawerOk: false,
+      );
+      Object? payError;
+
+      await Future.wait([
+        () async {
+          try {
+            await _applyPaymentsWithDiscount(order, discount);
+          } catch (e) {
+            payError = e;
+          }
+        }(),
+        () async {
+          printResult = await printOrderReceipt(
+            order: forReceipt,
+            restaurantName: str.appTitle,
+            arabic: str.isAr,
+            discountFcfa: discount,
+            productCatalog: _products,
+            prebuiltTicketBytes: ticketBytes,
           );
-        case ReceiptPrintOutcome.cancelled:
-          TopNotifier.warning(context, str.posOrderSavedPrintCancelled);
-        case ReceiptPrintOutcome.failed:
+        }(),
+      ]);
+
+      unawaited(_reloadHistoryAfterSale());
+      if (!mounted) return;
+
+      if (payError is DioException) {
+        TopNotifier.error(context, userFacingDioMessage(payError! as DioException, str));
+      } else if (payError != null) {
+        TopNotifier.error(context, '$payError');
+      }
+
+      if (!printResult.drawerOk) {
+        unawaited(retryCashDrawerAfterSale());
+      }
+      if (printResult.outcome == ReceiptPrintOutcome.printed) {
+        if (payError == null) {
+          TopNotifier.success(context, str.posOrderPaidPrinted);
+        } else {
           TopNotifier.warning(
             context,
-            drawerOkAfterPrint
-                ? str.posOrderSaved
-                : '${str.posOrderSaved} — ${str.posDrawerFailed}',
+            '${str.posOrderPaidPrinted} — encaissement à vérifier',
           );
+        }
+      } else if (payError == null) {
+        TopNotifier.warning(
+          context,
+          printResult.drawerOk
+              ? str.posOrderSaved
+              : '${str.posOrderSaved} — ${str.posDrawerFail}',
+        );
       }
-    } on DioException catch (e) {
-      if (mounted) TopNotifier.error(context, userFacingDioMessage(e, str));
     } catch (e) {
       if (mounted) TopNotifier.error(context, '$e');
+    } finally {
+      ReceiptTicketCache.clear();
     }
-  }
-
-  Future<OrderDetailDto> _fetchOrderForReceipt(
-    String orderId, {
-    required OrderDetailDto fallback,
-  }) async {
-    try {
-      final res = await widget.api.dio.get<Map<String, dynamic>>(
-        '/orders/$orderId',
-      );
-      if (res.data != null) {
-        return OrderDetailDto.fromJson(res.data!);
-      }
-    } catch (_) {
-      // Garde la commande locale si l'API ne repond pas.
-    }
-    return fallback;
   }
 
   Future<OrderDetailDto> _applyPaymentsWithDiscount(
@@ -700,8 +852,19 @@ class _PosPageState extends State<PosPage> {
         double.tryParse(order.totals.subtotal.replaceAll(',', '.')) ?? 0;
     final discount = discountFcfa.clamp(0, subtotal);
     final cashAmount = subtotal - discount;
-    var current = order;
 
+    if (discount <= 0.009) {
+      final payRes = await widget.api.dio.post<Map<String, dynamic>>(
+        '/orders/${order.id}/payments',
+        data: {'amount': subtotal, 'method': 'CASH'},
+      );
+      if (payRes.data != null) {
+        return OrderDetailDto.fromJson(payRes.data!);
+      }
+      return order;
+    }
+
+    var current = order;
     if (cashAmount > 0.009) {
       final payRes = await widget.api.dio.post<Map<String, dynamic>>(
         '/orders/${order.id}/payments',
@@ -711,14 +874,12 @@ class _PosPageState extends State<PosPage> {
         current = OrderDetailDto.fromJson(payRes.data!);
       }
     }
-    if (discount > 0.009) {
-      final remiseRes = await widget.api.dio.post<Map<String, dynamic>>(
-        '/orders/${order.id}/payments',
-        data: {'amount': discount, 'method': 'CASH', 'reference': 'REMISE'},
-      );
-      if (remiseRes.data != null) {
-        current = OrderDetailDto.fromJson(remiseRes.data!);
-      }
+    final remiseRes = await widget.api.dio.post<Map<String, dynamic>>(
+      '/orders/${order.id}/payments',
+      data: {'amount': discount, 'method': 'CASH', 'reference': 'REMISE'},
+    );
+    if (remiseRes.data != null) {
+      current = OrderDetailDto.fromJson(remiseRes.data!);
     }
     return current;
   }

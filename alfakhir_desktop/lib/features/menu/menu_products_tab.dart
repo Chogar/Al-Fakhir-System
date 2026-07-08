@@ -5,13 +5,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/dio_error_message.dart';
 import '../../core/api/product_image_uri.dart';
-import '../../data/models/category_model.dart';
-import '../../data/models/product_model.dart';
-
 import '../../core/notifications/top_notifier.dart';
 import '../../core/utils/product_sort.dart';
+import '../../data/models/category_model.dart';
+import '../../data/models/product_model.dart';
 import '../../l10n/app_strings.dart';
+import 'menu_ui.dart';
 
 class MenuProductsTab extends StatefulWidget {
   const MenuProductsTab({super.key, required this.api});
@@ -29,16 +30,24 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
   String? _error;
   bool _loading = true;
 
+  CategoryDto? _categoryById(String? id) {
+    if (id == null) return null;
+    for (final c in _categories) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
   Widget _productThumbnail(ProductDto p) {
-    final uri = resolveProductImageUri(p.imageUrl, widget.api.dio.options.baseUrl);
+    final url = productImageUri(p.imageUrl);
     final outline = Theme.of(context).colorScheme.outline;
-    if (uri == null) {
+    if (url == null) {
       return Icon(Icons.restaurant_outlined, size: 28, color: outline);
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.network(
-        uri.toString(),
+        url,
         width: 44,
         height: 44,
         fit: BoxFit.cover,
@@ -69,7 +78,7 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
         '/products',
         queryParameters: {
           if (_filterCategoryId != null) 'categoryId': _filterCategoryId!,
-          'sort': 'alpha',
+          'sort': 'category',
         },
       );
       _products = (prodRes.data ?? [])
@@ -77,12 +86,18 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
           .toList();
       if (mounted) {
         final str = AppStrings.of(context);
-        sortProductsAlphabetically(_products, preferArabic: str.isAr);
+        sortProductsByCategory(
+          _products,
+          categories: _categories,
+          preferArabic: str.isAr,
+        );
       }
     } on DioException catch (e) {
-      setState(() => _error = e.response?.data?.toString() ?? e.message);
+      if (mounted) {
+        _error = userFacingDioMessage(e, AppStrings.of(context));
+      }
     } catch (e) {
-      setState(() => _error = '$e');
+      _error = e.toString();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -101,17 +116,132 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
     final res = await widget.api.dio.post<Map<String, dynamic>>(
       '/products/upload-image',
       data: formData,
+      options: Options(contentType: 'multipart/form-data'),
     );
     final url = res.data?['url'];
     return url is String ? url : null;
   }
 
+  Future<void> _pickProductImage(
+    BuildContext ctx,
+    void Function(void Function()) setLocal, {
+    required void Function(String path, String name) onPicked,
+  }) async {
+    final r = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    if (!ctx.mounted) return;
+    if (r != null && r.files.isNotEmpty) {
+      final f = r.files.single;
+      final path = f.path;
+      if (path != null && path.isNotEmpty) {
+        setLocal(() => onPicked(path, f.name));
+      }
+    }
+  }
+
+  Widget _productImagePickerTile({
+    required BuildContext context,
+    required AppStrings str,
+    required String? pickedImagePath,
+    required String? existingImageUrl,
+    required bool removeImage,
+    required VoidCallback onPick,
+    required VoidCallback onRemove,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final existingUrl = productImageUri(existingImageUrl);
+    Widget preview;
+    if (pickedImagePath != null) {
+      preview = Image.file(
+        File(pickedImagePath),
+        width: 120,
+        height: 120,
+        fit: BoxFit.cover,
+      );
+    } else if (!removeImage && existingUrl != null) {
+      preview = Image.network(
+        existingUrl,
+        width: 120,
+        height: 120,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => Icon(Icons.broken_image_outlined, size: 48, color: cs.outline),
+      );
+    } else {
+      preview = Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.add_photo_alternate_outlined, size: 40, color: cs.primary),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              str.menuProdTapToUpload,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.outline),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          str.menuProdImageField,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Material(
+              color: cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onPick,
+                child: SizedBox(width: 120, height: 120, child: preview),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: onPick,
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: Text(
+                      pickedImagePath != null || (!removeImage && existingUrl != null)
+                          ? str.menuProdChangeImage
+                          : str.menuProdPickImage,
+                    ),
+                  ),
+                  if (pickedImagePath != null ||
+                      (!removeImage && (existingImageUrl ?? '').trim().isNotEmpty)) ...[
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: onRemove,
+                      child: Text(str.menuProdRemoveImage),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   Future<void> _openEditor({ProductDto? existing}) async {
     final str = AppStrings.of(context);
     if (_categories.isEmpty) {
-      if (mounted) {
-        TopNotifier.warning(context, str.menuProdNoCategoriesSeed);
-      }
+      TopNotifier.warning(context, str.menuProdNoCategoriesSeed);
       return;
     }
 
@@ -125,7 +255,7 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
       text: '${existing?.stockAlertThreshold ?? 0}',
     );
     var trackStock = existing?.tracksStock ?? false;
-    var categoryId = existing?.category.id ?? _categories.first.id;
+    var categoryId = existing?.categoryId ?? _categories.first.id;
     var available = existing?.isAvailable ?? true;
     String? pickedImagePath;
     String? pickedImageLabel;
@@ -146,20 +276,27 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (existing != null && existing.productNumber > 0) ...[
-                        InputDecorator(
-                          decoration: InputDecoration(
-                            labelText: str.menuProdNumberLabel,
-                          ),
-                          child: Text(
-                            formatProductNumber(existing.productNumber),
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
+                      _productImagePickerTile(
+                        context: context,
+                        str: str,
+                        pickedImagePath: pickedImagePath,
+                        existingImageUrl: existing?.imageUrl,
+                        removeImage: removeImage,
+                        onPick: () => _pickProductImage(
+                          ctx,
+                          setLocal,
+                          onPicked: (path, name) {
+                            pickedImagePath = path;
+                            pickedImageLabel = name;
+                            removeImage = false;
+                          },
                         ),
-                        const SizedBox(height: 12),
-                      ],
+                        onRemove: () => setLocal(() {
+                          removeImage = true;
+                          pickedImagePath = null;
+                          pickedImageLabel = null;
+                        }),
+                      ),
                       InputDecorator(
                         decoration: InputDecoration(
                           labelText: str.menuProdCategoryField,
@@ -190,90 +327,26 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
                       const SizedBox(height: 12),
                       TextField(
                         controller: nameCtrl,
-                        decoration: InputDecoration(
-                          labelText: str.menuProdNameField,
-                        ),
+                        decoration: InputDecoration(labelText: str.menuProdNameField),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: nameArCtrl,
-                        decoration: InputDecoration(
-                          labelText: str.menuProdNameArField,
-                          hintText: str.menuProdNameArHint,
-                        ),
+                        decoration:
+                            InputDecoration(labelText: str.menuProdNameArField),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: priceCtrl,
-                        decoration: InputDecoration(
-                          labelText: str.menuProdPriceField,
-                          hintText: str.menuProdPriceHint,
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(labelText: str.menuProdPriceField),
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
                       ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final r = await FilePicker.pickFiles(
-                              type: FileType.image,
-                              allowMultiple: false,
-                            );
-                            if (!ctx.mounted) return;
-                            if (r != null && r.files.isNotEmpty) {
-                              final f = r.files.single;
-                              final path = f.path;
-                              if (path != null && path.isNotEmpty) {
-                                setLocal(() {
-                                  pickedImagePath = path;
-                                  pickedImageLabel = f.name;
-                                  removeImage = false;
-                                });
-                              }
-                            }
-                          },
-                          icon: const Icon(Icons.folder_open_outlined),
-                          label: Text(str.menuProdPickImage),
-                        ),
-                      ),
-                      if (pickedImageLabel != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          pickedImageLabel!,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ] else if (!removeImage &&
-                          (existing?.imageUrl ?? '').trim().isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          str.menuProdImageKept,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                        ),
-                      ],
-                      if (pickedImagePath != null ||
-                          (!removeImage &&
-                              (existing?.imageUrl ?? '').trim().isNotEmpty))
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: () => setLocal(() {
-                              removeImage = true;
-                              pickedImagePath = null;
-                              pickedImageLabel = null;
-                            }),
-                            child: Text(str.menuProdRemoveImage),
-                          ),
-                        ),
-                      const SizedBox(height: 8),
                       SwitchListTile(
                         title: Text(str.menuProdAvailable),
                         value: available,
                         onChanged: (v) => setLocal(() => available = v),
                       ),
-                      const Divider(height: 24),
                       SwitchListTile(
                         title: Text(str.menuProdTrackStock),
                         subtitle: Text(str.menuProdTrackStockSubtitle),
@@ -288,13 +361,10 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
                         },
                       ),
                       if (trackStock) ...[
-                        const SizedBox(height: 8),
                         TextField(
                           controller: stockCtrl,
-                          decoration: InputDecoration(
-                            labelText: str.menuProdStockQty,
-                            hintText: str.menuProdStockQtyHint,
-                          ),
+                          decoration:
+                              InputDecoration(labelText: str.menuProdStockQty),
                           keyboardType: TextInputType.number,
                         ),
                         const SizedBox(height: 8),
@@ -302,7 +372,6 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
                           controller: alertCtrl,
                           decoration: InputDecoration(
                             labelText: str.menuProdAlertThreshold,
-                            hintText: str.menuProdAlertHint,
                           ),
                           keyboardType: TextInputType.number,
                         ),
@@ -338,16 +407,15 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
     String? imageUrlField;
     try {
       if (pickedImagePath != null) {
-        final path = pickedImagePath!;
-        if (!File(path).existsSync()) {
-          if (!mounted) return;
+        if (!File(pickedImagePath!).existsSync()) {
           TopNotifier.error(context, str.menuProdImageNotFound);
           return;
         }
-        final uploaded =
-            await _uploadProductImage(path, pickedImageLabel ?? 'image.jpg');
+        final uploaded = await _uploadProductImage(
+          pickedImagePath!,
+          pickedImageLabel ?? 'image.jpg',
+        );
         if (uploaded == null || uploaded.isEmpty) {
-          if (!mounted) return;
           TopNotifier.error(context, str.menuProdUploadFail);
           return;
         }
@@ -356,8 +424,7 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
         imageUrlField = '';
       }
     } on DioException catch (e) {
-      if (!mounted) return;
-      TopNotifier.error(context, e.response?.data?.toString() ?? e.message ?? str.posErrorGeneric);
+      TopNotifier.error(context, userFacingDioMessage(e, str));
       return;
     }
 
@@ -365,29 +432,33 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
     if (trackStock) {
       stockQty = int.tryParse(stockCtrl.text.trim());
       if (stockQty == null) {
-        if (!mounted) return;
         TopNotifier.error(context, str.menuProdInvalidStockQty);
         return;
       }
     }
-    int alertThreshold =
-        int.tryParse(alertCtrl.text.trim()) ?? 0;
+    var alertThreshold = int.tryParse(alertCtrl.text.trim()) ?? 0;
     if (alertThreshold < 0) alertThreshold = 0;
 
     final nameArTrim = nameArCtrl.text.trim();
-    final nameArPayload = nameArTrim.isEmpty ? null : nameArTrim;
-
     final body = <String, dynamic>{
       'categoryId': categoryId,
       'name': nameCtrl.text.trim(),
-      'nameAr': nameArPayload,
+      'nameAr': nameArTrim.isEmpty ? null : nameArTrim,
       'price': price,
       'isAvailable': available,
       'stockQuantity': trackStock ? stockQty : null,
       'stockAlertThreshold': alertThreshold,
     };
-    if (imageUrlField != null) {
-      body['imageUrl'] = imageUrlField;
+    if (imageUrlField != null) body['imageUrl'] = imageUrlField;
+
+    if (nameCtrl.text.trim().length < 2) {
+      TopNotifier.warning(
+        context,
+        str.isAr
+            ? 'الاسم يجب أن يحتوي على حرفين على الأقل'
+            : 'Le nom doit contenir au moins 2 caractères',
+      );
+      return;
     }
 
     try {
@@ -397,120 +468,155 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
         await widget.api.dio.patch('/products/${existing.id}', data: body);
       }
       await _refresh();
-      if (mounted) {
-        TopNotifier.success(context, str.menuProdSaved);
-      }
+      if (mounted) TopNotifier.success(context, str.menuProdSaved);
     } on DioException catch (e) {
       if (!mounted) return;
-      TopNotifier.error(context, e.response?.data?.toString() ?? e.message ?? str.posErrorGeneric);
+      TopNotifier.error(context, userFacingDioMessage(e, str));
     }
   }
 
-  /// Ouvre un dialogue pour ajuster manuellement le stock d'un produit.
-  /// Le delta peut être positif (entrée, achat, retour) ou négatif (perte, casse,
-  /// inventaire à la baisse). Le motif est optionnel et libre.
-  Future<void> _adjustStock(ProductDto p) async {
+  Future<void> _delete(ProductDto p) async {
     final str = AppStrings.of(context);
-    final amtCtrl = TextEditingController();
-    final reasonCtrl = TextEditingController();
-    var direction = 'in';
-
-    final ok = await showDialog<bool>(
+    final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          title: Text(str.menuProdAdjustStockTitleNamed(
-            p.displayName(preferArabic: str.isAr),
-          )),
-          content: SizedBox(
-            width: 360,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (p.tracksStock)
-                  Text(
-                    str.menuProdStockCurrentVal(p.stockQuantity ?? 0),
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  )
-                else
-                  Text(
-                    str.menuProdStockNotTrackedHint,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                const SizedBox(height: 12),
-                SegmentedButton<String>(
-                  segments: [
-                    ButtonSegment(value: 'in', label: Text(str.menuProdDirectionIn)),
-                    ButtonSegment(value: 'out', label: Text(str.menuProdDirectionOut)),
-                  ],
-                  selected: {direction},
-                  onSelectionChanged: (s) =>
-                      setLocal(() => direction = s.first),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: amtCtrl,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: str.menuProdQtyField,
-                    hintText: str.menuProdStockQtyHint,
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reasonCtrl,
-                  decoration: InputDecoration(
-                    labelText: str.menuProdReasonField,
-                    hintText: str.menuProdReasonHint,
-                  ),
-                ),
-              ],
-            ),
+      builder: (ctx) => AlertDialog(
+        title: Text(str.menuProdDeleteTitle),
+        content: Text(p.displayName(preferArabic: str.isAr)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(str.no)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(str.yes)),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await widget.api.dio.delete('/products/${p.id}');
+      await _refresh();
+      if (mounted) TopNotifier.success(context, str.menuProdDeleted);
+    } on DioException catch (e) {
+      if (!mounted) return;
+      TopNotifier.error(context, userFacingDioMessage(e, str));
+    }
+  }
+
+  List<Widget> _groupedProductTiles() {
+    final str = AppStrings.of(context);
+    final out = <Widget>[];
+    String? lastCategoryId;
+
+    for (final p in _products) {
+      final catId = p.categoryId ?? '';
+      if (catId != lastCategoryId) {
+        lastCategoryId = catId;
+        final cat = _categoryById(catId);
+        out.add(
+          MenuUi.sectionHeader(
+            context,
+            cat != null
+                ? categoryPickerLabel(cat, _categories, preferArabic: str.isAr)
+                : str.menuProdNoCategory,
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(str.cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(str.menuProdApply),
-            ),
-          ],
+        );
+      }
+      out.add(_productListTile(p));
+    }
+    return out;
+  }
+
+  Widget _productListTile(ProductDto p) {
+    final str = AppStrings.of(context);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final cat = _categoryById(p.categoryId);
+    final catLabel = cat != null
+        ? categoryPickerLabel(cat, _categories, preferArabic: str.isAr)
+        : str.menuProdNoCategory;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openEditor(existing: p),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: 52, height: 52, child: _productThumbnail(p)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          formatProductNumber(p.productNumber),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: cs.primary.withValues(alpha: 0.85),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.displayName(preferArabic: str.isAr),
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          p.isAvailable ? Icons.check_circle : Icons.cancel,
+                          color: p.isAvailable ? Colors.green : Colors.grey,
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$catLabel · ${p.price} FCFA',
+                      style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 2),
+                    _stockCell(p),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _openEditor(existing: p),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: Text(str.menuProdBtnEdit),
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  OutlinedButton.icon(
+                    onPressed: () => _delete(p),
+                    icon: Icon(Icons.delete_outline, size: 18, color: cs.error),
+                    label: Text(
+                      str.menuProdBtnDelete,
+                      style: TextStyle(color: cs.error),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      side: BorderSide(color: cs.error.withValues(alpha: 0.6)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
-    if (ok != true || !mounted) return;
-
-    final qty = int.tryParse(amtCtrl.text.trim());
-    if (qty == null || qty <= 0) {
-      TopNotifier.error(context, str.menuProdInvalidQty);
-      return;
-    }
-    final delta = direction == 'in' ? qty : -qty;
-    try {
-      await widget.api.dio.post(
-        '/products/${p.id}/stock-adjust',
-        data: {
-          'delta': delta,
-          if (reasonCtrl.text.trim().isNotEmpty) 'reason': reasonCtrl.text.trim(),
-        },
-      );
-      await _refresh();
-      if (!mounted) return;
-      TopNotifier.success(
-        context,
-        str.menuProdStockAdjustedVal('${delta > 0 ? '+' : ''}$delta'),
-      );
-    } on DioException catch (e) {
-      if (!mounted) return;
-      TopNotifier.error(
-        context,
-        e.response?.data?.toString() ?? e.message ?? str.posErrorGeneric,
-      );
-    }
   }
 
   Widget _stockCell(ProductDto p) {
@@ -535,138 +641,10 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
       color = Colors.green.shade700;
       label = str.menuProdStockOk;
     }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            '${p.stockQuantity}',
-            style: TextStyle(color: color, fontWeight: FontWeight.w700),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(color: color, fontSize: 12),
-        ),
-      ],
+    return Text(
+      '${p.stockQuantity} · $label',
+      style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12),
     );
-  }
-
-  /// Change la catégorie d'un produit en un clic via `PATCH /products/:id`.
-  Future<void> _changeCategory(ProductDto p, String newCategoryId) async {
-    final str = AppStrings.of(context);
-    if (newCategoryId == p.category.id) return;
-    try {
-      await widget.api.dio.patch('/products/${p.id}', data: {
-        'categoryId': newCategoryId,
-      });
-      await _refresh();
-      if (mounted) {
-        final cat = _categories.firstWhere(
-          (c) => c.id == newCategoryId,
-          orElse: () => p.category,
-        );
-        final catLabel =
-            categoryPickerLabel(cat, _categories, preferArabic: str.isAr);
-        TopNotifier.success(
-          context,
-          str.menuProdCategoryChangedNamed(
-            p.displayName(preferArabic: str.isAr),
-            catLabel,
-          ),
-        );
-      }
-    } on DioException catch (e) {
-      if (!mounted) return;
-      TopNotifier.error(
-        context,
-        e.response?.data?.toString() ?? e.message ?? str.posErrorGeneric,
-      );
-    }
-  }
-
-  Widget _categoryCell(ProductDto p) {
-    final str = AppStrings.of(context);
-    final label = categoryPickerLabel(
-      p.category,
-      _categories,
-      preferArabic: str.isAr,
-    );
-    return PopupMenuButton<String>(
-      tooltip: str.menuProdChangeCategoryTooltip,
-      onSelected: (v) => _changeCategory(p, v),
-      itemBuilder: (_) => [
-        for (final c in _categories)
-          PopupMenuItem(
-            value: c.id,
-            child: Row(
-              children: [
-                if (c.id == p.category.id)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 6),
-                    child: Icon(Icons.check, size: 16),
-                  )
-                else
-                  const SizedBox(width: 22),
-                Flexible(
-                  child: Text(
-                    categoryPickerLabel(c, _categories, preferArabic: str.isAr),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 220),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(label, overflow: TextOverflow.ellipsis),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              Icons.arrow_drop_down,
-              size: 18,
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _delete(ProductDto p) async {
-    final str = AppStrings.of(context);
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(str.menuProdDeleteTitle),
-        content: Text(p.displayName(preferArabic: str.isAr)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(str.no)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(str.yes)),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    try {
-      await widget.api.dio.delete('/products/${p.id}');
-      await _refresh();
-      if (mounted) {
-        TopNotifier.success(context, str.menuProdDeleted);
-      }
-    } on DioException catch (e) {
-      if (!mounted) return;
-      TopNotifier.error(context, e.response?.data?.toString() ?? e.message ?? str.posErrorGeneric);
-    }
   }
 
   @override
@@ -680,7 +658,8 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_error!),
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 10),
             FilledButton(onPressed: _refresh, child: Text(str.retry)),
           ],
         ),
@@ -693,40 +672,23 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
           onRefresh: _refresh,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      str.menuProdPageTitle,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: str.refresh,
-                      onPressed: _refresh,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
                 InputDecorator(
                   decoration: InputDecoration(
                     labelText: str.menuProdFilterCategory,
+                    isDense: true,
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String?>(
                       value: _filterCategoryId,
                       isExpanded: true,
-                      hint: Text(str.menuProdAllCategoriesHint),
                       items: [
                         DropdownMenuItem<String?>(
                           value: null,
-                          child: Text(str.allCategories),
+                          child: Text(str.menuProdAllCategoriesHint),
                         ),
                         for (final c in _categories)
                           DropdownMenuItem(
@@ -747,80 +709,38 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: [
-                        DataColumn(label: Text(str.menuProdColPhoto)),
-                        DataColumn(label: Text(str.menuProdColNumber)),
-                        DataColumn(label: Text(str.menuProdColName)),
-                        DataColumn(label: Text(str.menuProdColCategory)),
-                        DataColumn(label: Text(str.menuProdColPrice)),
-                        DataColumn(label: Text(str.menuProdColStock)),
-                        DataColumn(label: Text(str.menuProdColAvailable)),
-                        const DataColumn(label: Text('')),
-                      ],
-                      rows: [
-                        for (final p in _products)
-                          DataRow(
-                            cells: [
-                              DataCell(_productThumbnail(p)),
-                              DataCell(Text(
-                                formatProductNumber(p.productNumber),
-                                style: const TextStyle(fontWeight: FontWeight.w700),
-                              )),
-                              DataCell(Text(
-                                p.displayName(preferArabic: str.isAr),
-                              )),
-                              DataCell(_categoryCell(p)),
-                              DataCell(Text('${p.price} FCFA')),
-                              DataCell(_stockCell(p)),
-                              DataCell(Icon(
-                                p.isAvailable ? Icons.check_circle : Icons.cancel,
-                                color: p.isAvailable ? Colors.green : Colors.grey,
-                                size: 20,
-                              )),
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      tooltip: str.menuProdTooltipAdjustStock,
-                                      icon: const Icon(
-                                          Icons.inventory_2_outlined),
-                                      onPressed: () => _adjustStock(p),
-                                    ),
-                                    IconButton(
-                                      tooltip: str.menuProdTooltipEdit,
-                                      icon: const Icon(Icons.edit_outlined),
-                                      onPressed: () => _openEditor(existing: p),
-                                    ),
-                                    IconButton(
-                                      tooltip: str.menuProdTooltipDelete,
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () => _delete(p),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                const SizedBox(height: 12),
+                if (_products.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Text(
+                      str.isAr ? 'لا منتجات' : 'Aucun produit',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  )
+                else ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      str.menuProdColActions,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.outline,
+                            fontWeight: FontWeight.w600,
                           ),
-                      ],
                     ),
                   ),
-                ),
+                  ..._groupedProductTiles(),
+                ],
               ],
             ),
           ),
         ),
         Positioned(
-          right: 32,
-          bottom: 32,
+          right: 24,
+          bottom: 24,
           child: FloatingActionButton.extended(
-            onPressed: () => _openEditor(),
+            onPressed: _openEditor,
             icon: const Icon(Icons.add),
             label: Text(str.menuProdFab),
           ),

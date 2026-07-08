@@ -1,71 +1,98 @@
 import 'dart:typed_data';
 
 import '../../data/models/order_model.dart';
+import '../../data/models/product_model.dart';
+import 'order_receipt_enricher.dart';
 import 'receipt_escpos_printer.dart';
-import 'receipt_pdf.dart';
+import 'receipt_printer_cache.dart';
 import 'receipt_printer_config.dart';
 import 'receipt_text_printer.dart';
 
-enum ReceiptPrintOutcome { printed, cancelled, failed }
+enum ReceiptPrintOutcome { printed, failed }
 
-Future<ReceiptPrintOutcome> dispatchReceiptPrint({
-  required Uint8List pdfBytes,
-  required String jobName,
+final class ReceiptPrintResult {
+  const ReceiptPrintResult({
+    required this.outcome,
+    required this.drawerOk,
+  });
+
+  final ReceiptPrintOutcome outcome;
+  final bool drawerOk;
+}
+
+Future<ReceiptPrintResult> dispatchReceiptPrint({
   required OrderDetailDto order,
   required String restaurantName,
   bool arabic = false,
-  bool interactive = false,
+  double discountFcfa = 0,
+  Uint8List? prebuiltTicketBytes,
 }) async {
-  if (pdfBytes.isEmpty && jobName.isEmpty && !interactive) {
-    return ReceiptPrintOutcome.failed;
+  final printerName = await ReceiptPrinterCache.printerOrResolve();
+  if (printerName == null || printerName.isEmpty) {
+    return const ReceiptPrintResult(
+      outcome: ReceiptPrintOutcome.failed,
+      drawerOk: false,
+    );
   }
 
-  final printerName = await ReceiptPrinterConfig.resolveThermalPrinterName();
-
-  final escOk = await printOrderReceiptEscPos(
+  final esc = await printOrderReceiptEscPos(
     order: order,
     restaurantName: restaurantName,
     printerName: printerName,
     arabic: arabic,
     openCashDrawer: true,
+    discountFcfa: discountFcfa,
+    prebuiltTicketBytes: prebuiltTicketBytes,
   );
-  if (escOk) return ReceiptPrintOutcome.printed;
-
-  if (printerName != null && printerName.isNotEmpty) {
-    final textOk = await printOrderReceiptAsText(
-      order: order,
-      restaurantName: restaurantName,
-      printerName: printerName,
-      arabic: arabic,
+  if (esc.printed) {
+    return ReceiptPrintResult(
+      outcome: ReceiptPrintOutcome.printed,
+      drawerOk: esc.drawerOk,
     );
-    if (textOk) {
-      await openCashDrawerKick(printerName: printerName);
-      return ReceiptPrintOutcome.printed;
-    }
   }
 
-  return ReceiptPrintOutcome.failed;
+  final textOk = await printOrderReceiptAsText(
+    order: order,
+    restaurantName: restaurantName,
+    printerName: printerName,
+    arabic: arabic,
+    discountFcfa: discountFcfa,
+  );
+  if (textOk) {
+    scheduleCashDrawerKick(printerName: printerName);
+    return const ReceiptPrintResult(
+      outcome: ReceiptPrintOutcome.printed,
+      drawerOk: true,
+    );
+  }
+
+  scheduleCashDrawerKick(printerName: printerName);
+  return const ReceiptPrintResult(
+    outcome: ReceiptPrintOutcome.failed,
+    drawerOk: true,
+  );
 }
 
-Future<ReceiptPrintOutcome> printOrderReceipt({
+/// Imprime le ticket et ouvre le tiroir GF-405 après encaissement.
+Future<ReceiptPrintResult> printOrderReceipt({
   required OrderDetailDto order,
   required String restaurantName,
   bool arabic = false,
   double discountFcfa = 0,
+  List<ProductDto>? productCatalog,
+  Uint8List? prebuiltTicketBytes,
 }) async {
-  final _ = discountFcfa;
-  final pdf = await exportOrderReceiptPdf(
-    order: order,
+  final forReceipt =
+      enrichOrderForReceipt(order, catalog: productCatalog ?? const []);
+  return dispatchReceiptPrint(
+    order: forReceipt,
     restaurantName: restaurantName,
     arabic: arabic,
     discountFcfa: discountFcfa,
-  );
-  return dispatchReceiptPrint(
-    pdfBytes: pdf.bytes,
-    jobName: 'Ticket ${order.orderNumber}',
-    order: order,
-    restaurantName: restaurantName,
-    arabic: arabic,
-    interactive: false,
+    prebuiltTicketBytes: prebuiltTicketBytes,
   );
 }
+
+/// Dernière tentative d'ouverture tiroir (après échec impression).
+Future<bool> retryCashDrawerAfterSale({String? printerName}) =>
+    openCashDrawerReliable(printerName: printerName);

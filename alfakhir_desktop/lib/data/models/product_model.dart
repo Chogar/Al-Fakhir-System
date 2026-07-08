@@ -10,6 +10,8 @@ class ProductDto {
     this.productNumber = 0,
     this.categoryId,
     this.categorySlug,
+    this.stockQuantity,
+    this.stockAlertThreshold = 0,
   });
 
   final String id;
@@ -22,9 +24,21 @@ class ProductDto {
   final int productNumber;
   final String? categoryId;
   final String? categorySlug;
+  final int? stockQuantity;
+  final int stockAlertThreshold;
+
+  bool get tracksStock => stockQuantity != null;
+
+  bool get isOutOfStock => tracksStock && (stockQuantity ?? 0) <= 0;
+
+  bool get isLowStock =>
+      tracksStock &&
+      !isOutOfStock &&
+      (stockQuantity ?? 0) <= stockAlertThreshold;
 
   factory ProductDto.fromJson(Map<String, dynamic> j) {
     final cat = j['category'];
+    final rawStock = j['stockQuantity'];
     return ProductDto(
       id: j['id']?.toString() ?? '',
       name: j['name']?.toString() ?? '',
@@ -34,8 +48,12 @@ class ProductDto {
       description: j['description'] as String?,
       isAvailable: j['isAvailable'] as bool? ?? true,
       productNumber: (j['productNumber'] as num?)?.toInt() ?? 0,
-      categoryId: cat is Map ? cat['id']?.toString() : null,
+      categoryId: cat is Map
+          ? cat['id']?.toString()
+          : j['categoryId']?.toString(),
       categorySlug: cat is Map ? cat['slug'] as String? : null,
+      stockQuantity: rawStock == null ? null : (rawStock as num).toInt(),
+      stockAlertThreshold: (j['stockAlertThreshold'] as num?)?.toInt() ?? 0,
     );
   }
 

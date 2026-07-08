@@ -47,7 +47,12 @@ exports.ROLE_DEFAULT_PERMISSIONS = {
         'reservations.manage',
         'customers.manage',
     ],
-    [enums_1.RoleName.SERVER]: ['dashboard.view', 'tables.manage', 'pos.access'],
+    [enums_1.RoleName.SERVER]: [
+        'dashboard.view',
+        'tables.manage',
+        'pos.access',
+        'menu.manage',
+    ],
     [enums_1.RoleName.CASHIER]: ['dashboard.view', 'pos.access', 'menu.manage'],
 };
 function resolveEffectivePermissions(user) {
@@ -56,11 +61,12 @@ function resolveEffectivePermissions(user) {
         ? [...exports.ROLE_DEFAULT_PERMISSIONS[roleName]]
         : [];
     const custom = user.permissions;
-    if (custom == null || (Array.isArray(custom) && custom.length === 0))
+    if (custom == null || (Array.isArray(custom) && custom.length === 0)) {
         return defaults;
+    }
     const allowed = new Set(exports.APP_PERMISSION_KEYS);
-    const seen = new Set();
-    const result = [];
+    const seen = new Set(defaults);
+    const result = [...defaults];
     for (const k of custom) {
         if (allowed.has(k) && !seen.has(k)) {
             seen.add(k);
