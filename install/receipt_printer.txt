@@ -1,4 +1,4 @@
-XP-58C
+﻿XP-58C
 drawer_model=GF-405
 drawer_pin=0
 drawer_both_pins=1

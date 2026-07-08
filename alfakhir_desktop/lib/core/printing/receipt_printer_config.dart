@@ -78,6 +78,35 @@ final class ReceiptPrinterConfig {
     return name;
   }
 
+  /// Résolution rapide au démarrage (fichier config + préférences, sans PowerShell).
+  static Future<String?> resolvePrinterFast() async {
+    final fromFile = await _readPrinterFromConfigFile();
+    if (fromFile != null && fromFile.isNotEmpty && !isVirtualPrinter(fromFile)) {
+      return fromFile;
+    }
+    final saved = await savedPrinterName();
+    if (saved != null) return saved;
+    return null;
+  }
+
+  /// Scan complet Windows (lent) — après affichage de l''interface.
+  static Future<String?> resolvePrinterFull() async {
+    final fast = await resolvePrinterFast();
+    if (fast != null && await _printerExistsOnWindows(fast)) {
+      return fast;
+    }
+    return resolveThermalPrinterName();
+  }
+
+  /// Imprimante ticket pour le tiroir (priorité au fichier config installé).
+  static Future<String?> resolvePrinterForDrawer() async {
+    final fromFile = await _readPrinterFromConfigFile();
+    if (fromFile != null && await _printerExistsOnWindows(fromFile)) {
+      return fromFile;
+    }
+    return resolveThermalPrinterName();
+  }
+
   static Future<String?> resolveThermalPrinterName() async {
     final fromFile = await _readPrinterFromConfigFile();
     if (fromFile != null && await _printerExistsOnWindows(fromFile)) {
@@ -105,10 +134,14 @@ final class ReceiptPrinterConfig {
       }
     }
 
-    return fromFile ?? kReceiptPrinterExactNames.first;
+    return null;
   }
 
-  /// Paramètres d'ouverture du tiroir (GF-405 : broche 0, impulsion ~100 ms).
+  /// Vérifie que l'imprimante existe sous Windows.
+  static Future<bool> printerExistsOnWindows(String name) =>
+      _printerExistsOnWindows(name);
+
+  /// Paramètres d'ouverture du tiroir (GF-405 : ESC p pin 0, t1=25 t2=250 par défaut).
   static Future<CashDrawerKickParams> cashDrawerKickParams() async {
     final file = await _readConfigEntries();
     final p = await SharedPreferences.getInstance();
@@ -126,10 +159,11 @@ final class ReceiptPrinterConfig {
         model == 'GS-405A' ||
         model == 'GS-405D';
 
+    // GF-405 : 150 ms ON / 600 ms OFF (aligné test_drawer_gf405.ps1).
     final onMs = int.tryParse(file['drawer_on_ms'] ?? '') ??
-        (isGf405 ? 100 : 50);
+        (isGf405 ? 150 : 50);
     final offMs = int.tryParse(file['drawer_off_ms'] ?? '') ??
-        (isGf405 ? 500 : 500);
+        (isGf405 ? 600 : 500);
     final bothPinsRaw = (file['drawer_both_pins'] ?? '').trim().toLowerCase();
     final bothPins = bothPinsRaw == '1' ||
         bothPinsRaw == 'true' ||

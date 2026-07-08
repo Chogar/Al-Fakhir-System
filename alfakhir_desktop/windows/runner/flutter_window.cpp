@@ -27,6 +27,10 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // Afficher immédiatement : si le 1er frame Dart tarde (prefs / API),
+  // la fenetre restait invisible et le raccourci semblait "ne rien faire".
+  this->Show();
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });

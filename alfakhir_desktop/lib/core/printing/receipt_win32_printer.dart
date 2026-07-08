@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
 
+/// Envoi ESC/POS en mode RAW (obligatoire pour tiroir RJ11 sur XP-58C).
 bool sendRawToWindowsPrinter(String printerName, List<int> bytes) {
   if (bytes.isEmpty) return false;
   final name = printerName.toNativeUtf16();

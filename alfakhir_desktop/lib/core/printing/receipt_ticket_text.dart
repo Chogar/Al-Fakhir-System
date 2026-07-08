@@ -1,10 +1,13 @@
 import '../../data/models/order_model.dart';
+import 'receipt_discount.dart';
+import 'receipt_line_label.dart';
 import 'receipt_pdf.dart';
 
 String buildReceiptTicketText({
   required OrderDetailDto order,
   required String restaurantName,
   bool arabic = false,
+  double discountFcfa = 0,
 }) {
   final l = arabic ? ReceiptPdfLabels.arabic() : ReceiptPdfLabels.french();
   final b = StringBuffer()
@@ -18,17 +21,27 @@ String buildReceiptTicketText({
     b.writeln('${l.client}: ${order.customer!.name}');
   }
 
-  b..writeln('-' * 32);
+  b.writeln('-' * 32);
   for (final line in order.items) {
-    final total = (double.tryParse(line.unitPrice.replaceAll(',', '.')) ?? 0) *
-        line.quantity;
-    b.writeln(
-      '${line.displayNameLocalized(arabic)}  x${line.quantity}  ${_fmtAmount(total.toString())} FCFA',
-    );
+    writeReceiptLineItem(b, line);
+  }
+  b.writeln('-' * 32);
+
+  final discount = resolveReceiptDiscountFcfa(
+    order,
+    discountFcfa: discountFcfa,
+  );
+  final netTotal = resolveReceiptNetTotalFcfa(
+    order,
+    discountFcfa: discountFcfa,
+  );
+
+  b.writeln('${l.subtotal}: ${_fmtAmount(order.totals.subtotal)} FCFA');
+  if (discount > 0.009) {
+    b.writeln('${l.discount}: -${_fmtAmount(discount.toString())} FCFA');
   }
   b
-    ..writeln('-' * 32)
-    ..writeln('${l.total}: ${_fmtAmount(order.totals.subtotal)} FCFA')
+    ..writeln('${l.total}: ${_fmtAmount(netTotal.toString())} FCFA')
     ..writeln();
   return b.toString();
 }

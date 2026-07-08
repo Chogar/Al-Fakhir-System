@@ -4,6 +4,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../data/models/order_model.dart';
+import 'receipt_line_label.dart';
 
 class ReceiptPdfLabels {
   ReceiptPdfLabels._({
@@ -16,6 +17,7 @@ class ReceiptPdfLabels {
     required this.colQty,
     required this.colTotal,
     required this.subtotal,
+    required this.discount,
     required this.total,
   });
 
@@ -28,6 +30,7 @@ class ReceiptPdfLabels {
   final String colQty;
   final String colTotal;
   final String subtotal;
+  final String discount;
   final String total;
 
   factory ReceiptPdfLabels.french() => ReceiptPdfLabels._(
@@ -40,6 +43,7 @@ class ReceiptPdfLabels {
         colQty: 'Qte',
         colTotal: 'Total',
         subtotal: 'Sous-total',
+        discount: 'Remise',
         total: 'Total',
       );
 
@@ -64,18 +68,22 @@ Future<ReceiptPdfResult> exportOrderReceiptPdf({
   double discountFcfa = 0,
 }) async {
   final L = arabic ? ReceiptPdfLabels.arabic() : ReceiptPdfLabels.french();
+
   final doc = pw.Document();
   doc.addPage(
     pw.Page(
       pageFormat: PdfPageFormat.roll80,
       build: (ctx) => pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
-          pw.Text(restaurantName, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-          pw.Text(L.receiptNo(order.orderNumber)),
+          pw.Text(
+            restaurantName,
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.Text(L.receiptNo(order.orderNumber), textAlign: pw.TextAlign.center),
           pw.SizedBox(height: 8),
-          for (final line in order.items)
-            pw.Text('${line.displayNameLocalized(arabic)} x${line.quantity}'),
+          for (final line in order.items) ..._receiptPdfLineWidgets(line),
           pw.Divider(),
           pw.Text('${L.total}: ${order.totals.subtotal} FCFA'),
         ],
@@ -83,4 +91,24 @@ Future<ReceiptPdfResult> exportOrderReceiptPdf({
     ),
   );
   return ReceiptPdfResult(Uint8List.fromList(await doc.save()));
+}
+
+List<pw.Widget> _receiptPdfLineWidgets(OrderLineDto line) {
+  final fr = line.productName.trim();
+  final ar = line.productNameAr?.trim() ?? '';
+  final price = receiptLinePriceSuffix(line);
+  final style = const pw.TextStyle(fontSize: 10);
+
+  if (fr.isNotEmpty && ar.isNotEmpty && ar != fr) {
+    return [
+      pw.Text(fr, style: style),
+      pw.Text('$ar$price', style: style),
+      pw.SizedBox(height: 4),
+    ];
+  }
+  final label = fr.isNotEmpty ? fr : (ar.isNotEmpty ? ar : 'Article');
+  return [
+    pw.Text('$label$price', style: style),
+    pw.SizedBox(height: 4),
+  ];
 }

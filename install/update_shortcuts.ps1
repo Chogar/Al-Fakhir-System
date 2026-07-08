@@ -2,11 +2,26 @@ param(
   [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\Al-Fakhir")
 )
 
+$ErrorActionPreference = "Stop"
+
 $wsh = New-Object -ComObject WScript.Shell
-$vbs = Join-Path $InstallDir "Al-Fakhir.vbs"
-$wscript = Join-Path $env:WINDIR "System32\wscript.exe"
 $appExe = Join-Path $InstallDir "app\alfakhir_desktop.exe"
-$iconLoc = "$appExe,0"
+$cmdLauncher = Join-Path $InstallDir "Al-Fakhir.cmd"
+$iconCustom = Join-Path $InstallDir "Al-Fakhir.ico"
+
+if (-not (Test-Path -LiteralPath $appExe)) {
+  throw "Application introuvable : $appExe"
+}
+
+# Prefer .cmd launcher (API + app). Fallback = direct exe.
+$target = if (Test-Path -LiteralPath $cmdLauncher) { $cmdLauncher } else { $appExe }
+$workDir = if (Test-Path -LiteralPath $cmdLauncher) { $InstallDir } else { (Join-Path $InstallDir "app") }
+
+$iconLoc = if (Test-Path -LiteralPath $iconCustom) {
+  "$iconCustom,0"
+} else {
+  "$appExe,0"
+}
 
 $paths = @(
   (Join-Path ([Environment]::GetFolderPath("Desktop")) "Al-Fakhir.lnk"),
@@ -16,12 +31,14 @@ $paths = @(
 foreach ($p in $paths) {
   $dir = Split-Path $p
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+  if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
   $sc = $wsh.CreateShortcut($p)
-  $sc.TargetPath = $wscript
-  $sc.Arguments = "`"$vbs`""
-  $sc.WorkingDirectory = $InstallDir
+  $sc.TargetPath = $target
+  $sc.Arguments = ""
+  $sc.WorkingDirectory = $workDir
   $sc.Description = "Restaurant Al-Fakhir"
   $sc.IconLocation = $iconLoc
+  $sc.WindowStyle = 1
   $sc.Save()
-  Write-Host "Raccourci : $p"
+  Write-Host "Raccourci : $p -> $target" -ForegroundColor Green
 }

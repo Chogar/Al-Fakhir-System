@@ -10,11 +10,17 @@ class AuthSessionStore {
   static Map<String, dynamic>? user;
 
   static Future<void> load() async {
-    final p = await SharedPreferences.getInstance();
-    token = p.getString(_tokenKey);
-    final raw = p.getString(_userKey);
-    if (raw != null && raw.isNotEmpty) {
-      user = jsonDecode(raw) as Map<String, dynamic>;
+    try {
+      final p = await SharedPreferences.getInstance()
+          .timeout(const Duration(seconds: 3));
+      token = p.getString(_tokenKey);
+      final raw = p.getString(_userKey);
+      if (raw != null && raw.isNotEmpty) {
+        user = jsonDecode(raw) as Map<String, dynamic>;
+      }
+    } catch (_) {
+      token = null;
+      user = null;
     }
   }
 
