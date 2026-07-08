@@ -481,7 +481,18 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(str.menuProdDeleteTitle),
-        content: Text(p.displayName(preferArabic: str.isAr)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(p.displayName(preferArabic: str.isAr)),
+            const SizedBox(height: 8),
+            Text(
+              str.menuProdDeleteHint,
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(str.no)),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(str.yes)),
@@ -490,9 +501,16 @@ class _MenuProductsTabState extends State<MenuProductsTab> {
     );
     if (confirm != true || !mounted) return;
     try {
-      await widget.api.dio.delete('/products/${p.id}');
+      final res = await widget.api.dio.delete<Map<String, dynamic>>(
+        '/products/${p.id}',
+      );
       await _refresh();
-      if (mounted) TopNotifier.success(context, str.menuProdDeleted);
+      if (!mounted) return;
+      final soft = res.data?['softDeleted'] == true;
+      TopNotifier.success(
+        context,
+        soft ? str.menuProdDisabled : str.menuProdDeleted,
+      );
     } on DioException catch (e) {
       if (!mounted) return;
       TopNotifier.error(context, userFacingDioMessage(e, str));

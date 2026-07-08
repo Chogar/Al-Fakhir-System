@@ -93,6 +93,21 @@ let ProductsService = class ProductsService {
             return (a.productNumber ?? 0) - (b.productNumber ?? 0);
         });
     }
+    sortProductsByCategory(rows) {
+        return [...rows].sort((a, b) => {
+            const ca = a.category?.sortOrder ?? 9999;
+            const cb = b.category?.sortOrder ?? 9999;
+            if (ca !== cb)
+                return ca - cb;
+            const byCat = (a.category?.labelFr ?? '').localeCompare(b.category?.labelFr ?? '', 'fr', { sensitivity: 'base' });
+            if (byCat !== 0)
+                return byCat;
+            const byName = a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+            if (byName !== 0)
+                return byName;
+            return (a.productNumber ?? 0) - (b.productNumber ?? 0);
+        });
+    }
     async findAll(categoryId, sort = 'alpha') {
         const where = categoryId ? { category: { id: categoryId } } : {};
         const rows = await this.products.find({
@@ -102,6 +117,9 @@ let ProductsService = class ProductsService {
         if (sort === 'bestseller') {
             const salesMap = await this.salesQuantityByProductId();
             return this.sortProductsBySales(rows, salesMap);
+        }
+        if (sort === 'category') {
+            return this.sortProductsByCategory(rows);
         }
         return this.sortProductsAlpha(rows);
     }
@@ -166,14 +184,22 @@ let ProductsService = class ProductsService {
         return this.products.save(row);
     }
     async remove(id) {
-        await this.findOne(id);
+        const row = await this.findOne(id);
         const used = await this.orderItems.count({
             where: { product: { id } },
         });
         if (used > 0) {
-            throw new common_1.ConflictException('Impossible de supprimer : ce plat figure déjà dans des commandes');
+            // Plat déjà vendu : désactivation (soft-delete) pour qu'il quitte la caisse.
+            row.isAvailable = false;
+            await this.products.save(row);
+            return {
+                id: row.id,
+                softDeleted: true,
+                message: 'Plat désactivé (déjà vendu) — retiré de la caisse',
+            };
         }
         await this.products.delete(id);
+        return { id, softDeleted: false };
     }
     async adjustStock(id, delta, reason) {
         void reason;

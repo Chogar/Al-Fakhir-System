@@ -132,7 +132,13 @@ class AppStrings {
       isAr ? 'فشل رفع الصورة' : 'Échec du téléversement de l\'image';
   String get menuProdSaved => isAr ? 'تم حفظ المنتج' : 'Produit enregistré';
   String get menuProdDeleted => isAr ? 'تم حذف المنتج' : 'Produit supprimé';
+  String get menuProdDisabled => isAr
+      ? 'تم تعطيل الطبق (مباع مسبقاً) وإخفاؤه من الصندوق'
+      : 'Plat désactivé (déjà vendu) et retiré de la caisse';
   String get menuProdDeleteTitle => isAr ? 'حذف المنتج؟' : 'Supprimer ce produit ?';
+  String get menuProdDeleteHint => isAr
+      ? 'إذا تم بيع الطبق من قبل، سيتم تعطيله فقط وإخفاؤه من الصندوق.'
+      : 'Si le plat a déjà été vendu, il sera seulement désactivé et retiré de la caisse.';
   String get menuProdFilterCategory => isAr ? 'تصفية حسب الفئة' : 'Filtrer par catégorie';
   String get menuProdAllCategoriesHint =>
       isAr ? 'كل الفئات' : 'Toutes les catégories';
